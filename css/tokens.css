@@ -1,0 +1,64 @@
+/* =============================================================================
+   منهاجي — توكنات التصميم
+   نسخة من syria-edu/design/_tokens.css. المصدر الوحيد للألوان والمسافات.
+   ============================================================================= */
+
+:root {
+  color-scheme: light dark;
+
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-xl:22px; --r-2xl:28px; --r-full:999px;
+  --ease:cubic-bezier(.2,.7,.3,1);
+  --dur:180ms;
+
+  /* الخط الأساسي مُعرَّف في index.html كـ @font-face متغيّر.
+     الاسم هنا يجب أن يطابق `font-family` هناك حرفيًا، وإلا سقط المتصفح إلى
+     الخط الاحتياطي **بصمت وبلا أي خطأ** — أشهر فخّ في تركيب الخطوط. */
+  --font:"Alexandria","Segoe UI","Noto Sans Arabic",Tahoma,system-ui,sans-serif;
+  --font-fr:"Inter","Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+
+  /* العربية تحتاج ارتفاع سطر أكبر من اللاتينية — الحروف المتصلة تزدحم عند 1.4 */
+  --lh-body:1.75;
+}
+
+:root, :root[data-theme="light"] {
+  --bg:#F6F8F8;      --surf:#FFFFFF;    --surf2:#EFF3F3;  --surf3:#E4EAEA;
+  --brd:#DCE2E2;     --brd2:#BFC9C9;
+  --tx:#111D1D;      --txm:#556363;     --txf:#8B9797;
+
+  --acc:#2F6F73;     --acc-hi:#265C60;  --on-acc:#FFFFFF;
+  --acc-soft:#EBF4F4; --acc-tx:#1D484B;
+
+  --gold:#B67F35;    --gold-soft:#FBEEDA;
+  --ok:#2E7D5B;      --ok-soft:#E4F2EC;
+  --err:#C2453D;     --err-soft:#FAE9E7;
+  --warn:#9C6D18;    --warn-soft:#FBF1DD;
+  --info:#3A6EA5;    --info-soft:#E9F0F8;
+
+  --sh-1:0 1px 2px rgba(17,29,29,.06), 0 1px 3px rgba(17,29,29,.05);
+  --sh-2:0 2px 6px rgba(17,29,29,.07), 0 10px 24px rgba(17,29,29,.06);
+  --sh-3:0 18px 48px rgba(17,29,29,.14);
+
+  --scrim:rgba(8,16,16,.55);
+}
+
+:root[data-theme="dark"] {
+  --bg:#0E1616;     --surf:#16201F;   --surf2:#1D2928;  --surf3:#25332F;
+  --brd:#2A3736;    --brd2:#3D4E4D;
+  --tx:#E7EFEE;     --txm:#A2B0AF;    --txf:#788685;
+
+  --acc:#57A9AD;    --acc-hi:#6BBBBF; --on-acc:#062120;
+  --acc-soft:#17302F; --acc-tx:#9FD3D5;
+
+  --gold:#E0AC63;   --gold-soft:#33281A;
+  --ok:#5FBE92;     --ok-soft:#162C24;
+  --err:#EE8079;    --err-soft:#33201E;
+  --warn:#DDA845;   --warn-soft:#332A18;
+  --info:#7BA9DC;   --info-soft:#1A2634;
+
+  --sh-1:0 1px 2px rgba(0,0,0,.4);
+  --sh-2:0 2px 8px rgba(0,0,0,.45), 0 12px 28px rgba(0,0,0,.35);
+  --sh-3:0 18px 48px rgba(0,0,0,.55);
+
+  --scrim:rgba(0,0,0,.6);
+}

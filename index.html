@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>لوحة منهاجي — إدارة المحتوى والاشتراكات</title>
+  <link rel="icon" href="assets/icon-192.png" type="image/png">
+
+  <!-- Alexandria بأوزان ثابتة: ٤٠٠ للنص · ٦٠٠ للعناوين الفرعية · ٧٠٠ للعناوين.
+       نحمّل هذه الثلاثة فقط لا الأوزان التسعة كلها. -->
+  <style>
+    @font-face { font-family:'Alexandria'; font-weight:400; font-style:normal; font-display:swap;
+                 src: url('assets/fonts/Alexandria-400.woff2') format('woff2'); }
+    @font-face { font-family:'Alexandria'; font-weight:600; font-style:normal; font-display:swap;
+                 src: url('assets/fonts/Alexandria-600.ttf') format('truetype'); }
+    @font-face { font-family:'Alexandria'; font-weight:700; font-style:normal; font-display:swap;
+                 src: url('assets/fonts/Alexandria-700.woff2') format('woff2'); }
+  </style>
+
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- scripts عادية لا ES modules: تعمل بفتح الملف مباشرةً وعلى السيرفر معًا -->
+  <script src="js/ui.js"></script>
+  <script src="js/data/seed.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/components.js"></script>
+  <script src="js/pages/dashboard.js"></script>
+  <script src="js/pages/content.js"></script>
+  <script src="js/pages/questions.js"></script>
+  <script src="js/pages/exams.js"></script>
+  <script src="js/pages/codes.js"></script>
+  <script src="js/pages/students.js"></script>
+  <script src="js/pages/videos.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
