@@ -15,7 +15,6 @@ window.Pages = window.Pages || {};
     let fLesson = params.lesson || '';
     let fSection = params.section !== undefined ? params.section : '';
     let fUnit = '';
-    let fTopic = '';
     let search = '';
 
     function draw() {
@@ -27,7 +26,6 @@ window.Pages = window.Pages || {};
       if (fSection === '__none') rows = rows.filter((q) => !q.section);
       else if (fSection) rows = rows.filter((q) => q.section === fSection);
       if (fUnit)    rows = rows.filter((q) => q.unitCode === fUnit);
-      if (fTopic)   rows = rows.filter((q) => q.topic === fTopic);
       if (search)   rows = rows.filter((q) => q.stem.includes(search));
 
       const selLesson = C.select([['', 'كل الدروس'], ...paths.map((l) => [l.id, `${l.title}`])], fLesson);
@@ -46,9 +44,6 @@ window.Pages = window.Pages || {};
       const selUnit = C.select([['', 'كل الفروع'], ...unitOpts], fUnit,
         { disabled: !fSection || fSection === '__none' });
       selUnit.addEventListener('change', () => { fUnit = selUnit.value; draw(); });
-
-      const selTopic = C.select([['', 'كل المواضيع'], ...s.topics.map((t) => [t.id, t.name])], fTopic);
-      selTopic.addEventListener('change', () => { fTopic = selTopic.value; draw(); });
 
       const inpSearch = C.input({ placeholder: 'ابحث في نص السؤال…', value: search });
       inpSearch.addEventListener('input', () => {
@@ -72,7 +67,6 @@ window.Pages = window.Pages || {};
           h('div.filter-w', selLesson),
           h('div.filter-w', selSection),
           h('div.filter-w', selUnit),
-          h('div.filter-w', selTopic),
           h('div.grow', { style: 'min-width:200px' }, inpSearch),
           h('button.btn.btn--primary', {
             onclick: () => Editors.question(null, {

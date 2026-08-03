@@ -32,10 +32,8 @@ window.Editors = (function () {
                options: [{ k: 'أ', t: '' }, { k: 'ب', t: '' }] };
 
     const paths = Store.lessonPaths();
-    const topics = Store.get().topics;
     const fStem   = C.textarea({ rows: 3, value: q.stem || '', placeholder: 'نص السؤال…' });
     const fLes    = C.select([['', '— بلا درس —'], ...paths.map((l) => [l.id, l.title])], q.lesson || '');
-    const fTop    = C.select(topics.map((t) => [t.id, t.name]), q.topic || topics[0]?.id || '');
     const fType   = C.select(TYPES, q.type);
     const fDiff   = C.select([1, 2, 3, 4, 5].map((n) => [n, ar(n)]), q.difficulty || 3);
     const fSource = C.input({ value: q.source || '', placeholder: 'كتاب الأنشطة ص ٩' });
@@ -155,9 +153,7 @@ window.Editors = (function () {
           C.field('القسم', fSec,
             'تبويب «تمارين» عند الطالب. بلا قسم = السؤال مخزَّن في البنك لكن لا يراه أحد.'),
           C.field('الفرع (الوحدة)', unitBox, 'تفريع اختياري داخل القسم — يعتمد على القسم المختار أعلاه')),
-        h('div.grid.grid--2',
-          C.field('الدرس', fLes, 'اختياري — لربط السؤال بتمارين درس محدَّد بعينه'),
-          C.field('الموضوع', fTop, 'يغذّي خريطة الإتقان الدقيقة — إلزامي')),
+        C.field('الدرس', fLes, 'اختياري — لربط السؤال بتمارين درس محدَّد بعينه'),
         h('div.grid.grid--3',
           C.field('النوع', fType),
           C.field('الصعوبة', fDiff),
@@ -184,7 +180,7 @@ window.Editors = (function () {
               return C.toast('أدخل الجملة الصحيحة', 'err');
 
             const row = {
-              id: q.id, lesson: fLes.value || null, topic: fTop.value,
+              id: q.id, lesson: fLes.value || null,
               section: fSec.value || null,
               unitCode: unitBox.querySelector('select')?.value || null,
               type, difficulty: +fDiff.value, source: fSource.value.trim() || null,

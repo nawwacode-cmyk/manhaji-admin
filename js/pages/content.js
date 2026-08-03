@@ -370,7 +370,7 @@ window.Pages = window.Pages || {};
         await Store.upsert('lessons', {
           id, unit: unitId, order: Store.lessonsOf(unitId).length + 1,
           title: 'درس جديد', minutes: 10, free: false, published: false,
-          topics: [], body: '<h3>عنوان القسم الأول</h3><p>اكتب نص الدرس هنا…</p>', video: null,
+          body: '<h3>عنوان القسم الأول</h3><p>اكتب نص الدرس هنا…</p>', video: null,
         });
         selected = id;
         drawTree(); drawEditor();

@@ -30,7 +30,7 @@ window.Store = (function () {
 
     // --- من Supabase حقيقةً ---
     subjectId: null, defaultGradeId: null,
-    grades: [], topics: [],
+    grades: [],
     books: [], units: [], lessons: [], questions: [],
 
     // --- ما زالت وهمية عمدًا (غير موصولة بهذه التمريرة) ---
@@ -82,14 +82,13 @@ window.Store = (function () {
   function fromDbUnit(u) {
     return { id: u.id, book: u.course_id, code: u.code, order: u.sort_order, title: u.title_ar };
   }
-  function fromDbLesson(l, topicIds) {
+  function fromDbLesson(l) {
     return { id: l.id, unit: l.unit_id, code: l.code, order: l.sort_order,
              title: l.title_ar, minutes: l.est_minutes, page: null,
              video: null, free: l.is_free, published: l.is_published,
-             topics: topicIds || [], body: l.body_html || '' };
+             body: l.body_html || '' };
   }
-  /** الأقسام الأربعة التي يتصفّح الطالب تمارينه عبرها — راجع هجرة
-   *  20260802000400. مستقلّة عن topic (الذي يبقى لتتبّع الإتقان الدقيق). */
+  /** الأقسام الأربعة التي يتصفّح الطالب تمارينه عبرها — راجع هجرة 20260802000400. */
   const SECTIONS = [
     ['vocabulaire', 'مفردات'], ['grammaire', 'قاعدة'],
     ['dialogue', 'ترتيب حوار'], ['unite', 'مواضيع الوحدة'],
@@ -137,7 +136,7 @@ window.Store = (function () {
 
   function fromDbQuestion(q, options) {
     const row = { id: q.id, subject: q.subject_id, grade: q.grade_id, code: q.code,
-                  lesson: q.lesson_id, topic: q.topic_id, section: q.section || null,
+                  lesson: q.lesson_id, section: q.section || null,
                   unitCode: q.unit_code || null,
                   type: TYPE_FROM_DB[q.type] || q.type,
                   difficulty: q.difficulty, source: null,
@@ -210,34 +209,19 @@ window.Store = (function () {
    *  عنصرًا عنصرًا، ومضمون التطابق مع ما قبِلَه السيرفر فعلًا. */
   async function loadAll() {
     set({ loading: true });
-    const [subjects, grades, topics, courses, units, lessons, lessonTopics, questions, options] =
+    const [subjects, grades, courses, units, lessons, questions, options] =
       await Promise.all([
         Api.from('subjects', { select: 'id,code' }),
         Api.from('grades',   { select: 'id,code,name_ar', order: 'sort_order' }),
-        Api.from('topics',   { select: 'id,parent_id,name_ar', order: 'sort_order' }),
         Api.from('courses',  { select: '*' }),
         Api.from('units',    { select: '*', order: 'sort_order' }),
         Api.from('lessons',  { select: '*', order: 'sort_order' }),
-        Api.from('lesson_topics', { select: 'lesson_id,topic_id' }),
         Api.from('questions', { select: '*' }),
         Api.from('question_options', { select: '*', order: 'sort_order' }),
       ]);
 
     const subject = subjects.find((s) => s.code === 'fr');
     const grade12 = grades.find((g) => g.code === 'g12');
-
-    const topicsByParent = new Map();
-    topics.forEach((t) => { if (t.parent_id) topicsByParent.set(t.id, t.parent_id); });
-    const topicLabel = (t) => {
-      const parent = topics.find((p) => p.id === t.parent_id);
-      return parent ? `${parent.name_ar} ← ${t.name_ar}` : t.name_ar;
-    };
-
-    const topicsOfLesson = new Map();
-    lessonTopics.forEach(({ lesson_id, topic_id }) => {
-      if (!topicsOfLesson.has(lesson_id)) topicsOfLesson.set(lesson_id, []);
-      topicsOfLesson.get(lesson_id).push(topic_id);
-    });
 
     const optionsOfQ = new Map();
     options.forEach((o) => {
@@ -250,10 +234,9 @@ window.Store = (function () {
       subjectId: subject?.id || null,
       defaultGradeId: grade12?.id || grades[0]?.id || null,
       grades: grades.map((g) => ({ id: g.id, name: g.name_ar })),
-      topics: topics.map((t) => ({ id: t.id, name: topicLabel(t) })),
       books:     courses.map(fromDbCourse),
       units:     units.map(fromDbUnit),
-      lessons:   lessons.map((l) => fromDbLesson(l, topicsOfLesson.get(l.id))),
+      lessons:   lessons.map(fromDbLesson),
       questions: questions.map((q) => fromDbQuestion(q, optionsOfQ.get(q.id) || [])),
     });
   }
@@ -319,9 +302,7 @@ window.Store = (function () {
     await Api.upsert('lessons', dbRow);
 
     set((s) => {
-      // lesson_topics غير مُستهلَكة حاليًا في تطبيق الطالب — لا نكتب عليها من
-      // هنا، ونحافظ على أي روابط قديمة كما هي (موروثة من الاستيراد الأصلي).
-      const mapped = fromDbLesson(dbRow, s.lessons.find((x) => x.id === row.id)?.topics || []);
+      const mapped = fromDbLesson(dbRow);
       const list = isNew ? [...s.lessons, mapped] : s.lessons.map((l) => (l.id === row.id ? mapped : l));
       return { lessons: list };
     });
@@ -336,7 +317,6 @@ window.Store = (function () {
       subject_id: existing?.subject || row.subject || state.subjectId,
       grade_id:   existing?.grade   || row.grade   || state.defaultGradeId,
       code: existing?.code || row.code || `admin-${shortId()}`,
-      topic_id: row.topic || null,
       lesson_id: row.lesson || null,
       section: row.section || null,
       unit_code: row.unitCode || null,
@@ -396,7 +376,6 @@ window.Store = (function () {
                                   .sort((a, b) => a.order - b.order);
   const questionsOf = (lessonId) => state.questions.filter((q) => q.lesson === lessonId);
   const lessonById  = (id) => state.lessons.find((l) => l.id === id);
-  const topicName   = (id) => (state.topics.find((t) => t.id === id) || {}).name || id;
 
   function lessonPaths() {
     const out = [];
@@ -433,7 +412,7 @@ window.Store = (function () {
   return {
     get, set, subscribe, ROLES, can, signIn, signOut, newId, SECTIONS,
     unitOptionsFor, unitLabel,
-    upsert, remove, unitsOf, lessonsOf, questionsOf, lessonById, topicName,
+    upsert, remove, unitsOf, lessonsOf, questionsOf, lessonById,
     lessonPaths, stats, setTheme, reset,
   };
 })();
