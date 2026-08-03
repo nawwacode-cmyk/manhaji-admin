@@ -179,9 +179,9 @@ window.App = (function () {
     canvas.height = canvas.offsetHeight;
 
     const COLORS = ['#2F6F73', '#57A9AD', '#F2B705', '#E4572E', '#5B8C5A'];
-    const particles = Array.from({ length: 140 }, () => ({
+    const particles = Array.from({ length: 160 }, () => ({
       x: canvas.width / 2, y: canvas.height * 0.35,
-      vx: (Math.random() - 0.5) * 13, vy: (Math.random() - 1.6) * 11,
+      vx: (Math.random() - 0.5) * 13, vy: (Math.random() - 1.6) * 13,
       size: 4 + Math.random() * 5,
       color: COLORS[Math.floor(Math.random() * COLORS.length)],
       rot: Math.random() * Math.PI * 2, vr: (Math.random() - 0.5) * 0.3,
@@ -192,8 +192,8 @@ window.App = (function () {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       let alive = false;
       for (const p of particles) {
-        p.life++; p.vy += 0.22; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
-        const fade = Math.max(0, 1 - p.life / 90);
+        p.life++; p.vy += 0.12; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+        const fade = Math.max(0, 1 - p.life / 200);
         if (fade <= 0) continue;
         alive = true;
         ctx.save();
@@ -211,28 +211,23 @@ window.App = (function () {
 
   /**
    * شاشة ترحيب لحظية بعد الدخول الناجح — تحلّ محلّ #app كليًا (بلا شريط
-   * جانبي ولا ترويسة) ثم تنتقل تلقائيًا للوحة المعلومات، أو فورًا بضغطة زر.
+   * جانبي ولا ترويسة). تبقى حتى يضغط المستخدم "متابعة" بنفسه — بلا انتقال
+   * تلقائي، كي لا تفوت اللحظة قبل أن يلاحظها.
    */
   function showWelcome() {
     const s = Store.get();
     const name = s.user ? ` ${s.user}` : '';
     const greeting = s.role === 'teacher' ? `أهلًا وسهلًا أستاذ${name}` : `أهلًا بك${name}`;
 
-    let done = false;
-    const proceed = () => { if (done) return; done = true; clearTimeout(timer); go('dashboard'); };
-
     const wrap = h('div.welcome',
       h('canvas.welcome__confetti'),
       h('div.welcome__card',
-        h('img', { src: 'assets/icon-192.png', alt: '', width: 60, height: 60,
-                   style: 'border-radius:16px' }),
         h('div.welcome__h', greeting),
-        h('div.welcome__s', 'جاهز ليوم عمل جديد على لوحة منهاجي.'),
-        h('button.btn.btn--primary', { onclick: proceed }, 'المتابعة إلى اللوحة')));
+        h('div.welcome__s', 'جاهز ليوم عمل جديد'),
+        h('button.btn.btn--primary', { onclick: () => go('dashboard') }, 'متابعة')));
 
     document.getElementById('app').replaceChildren(wrap);
     fireConfetti(wrap.querySelector('canvas'));
-    const timer = setTimeout(proceed, 4000);
   }
 
   async function boot() {
