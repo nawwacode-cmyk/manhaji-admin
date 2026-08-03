@@ -27,6 +27,7 @@ window.Store = (function () {
 
   const initial = () => ({
     role: null, user: null, loading: false,
+    route: null,   // آخر صفحة نشطة {name, params} — لاستئنافها بعد تحديث الصفحة
 
     // --- من Supabase حقيقةً ---
     subjectId: null, defaultGradeId: null,
@@ -49,11 +50,11 @@ window.Store = (function () {
     try {
       const raw = localStorage.getItem(KEY);
       const saved = raw ? JSON.parse(raw) : {};
-      return { ...initial(), theme: saved.theme || 'light' };
+      return { ...initial(), theme: saved.theme || 'light', route: saved.route || null };
     } catch { return initial(); }
   }
   function persist() {
-    try { localStorage.setItem(KEY, JSON.stringify({ theme: state.theme })); } catch {}
+    try { localStorage.setItem(KEY, JSON.stringify({ theme: state.theme, route: state.route })); } catch {}
   }
 
   function set(patch) {

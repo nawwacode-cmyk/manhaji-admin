@@ -127,6 +127,9 @@ window.App = (function () {
 
   function go(id, p = {}) {
     current = id; params = p;
+    // يُحفظ ليُستأنف بعد تحديث الصفحة — بلا هذا كان كل ريفريش يرجع
+    // للوحة المعلومات مهما كانت الصفحة المفتوحة فعليًا.
+    Store.set({ route: { name: id, params: p } });
     render();
     main?.querySelector('.content')?.scrollTo(0, 0);
   }
@@ -245,6 +248,13 @@ window.App = (function () {
     if (!s.role && Api.isSignedIn()) {
       renderLoading();
       await Store.resume();
+    }
+
+    // استئناف آخر صفحة مفتوحة — بشرط أن تكون صفحة حقيقية ما زال المستخدم
+    // يملك صلاحية الوصول إليها (لا اسم قديم أو صلاحية أُلغيت لاحقًا).
+    const r = Store.get().route;
+    if (r && Pages[r.name] && Store.can(r.name)) {
+      current = r.name; params = r.params || {};
     }
 
     render();
