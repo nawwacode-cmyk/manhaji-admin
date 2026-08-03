@@ -163,7 +163,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .btn {
   height: 40px; padding: 0 16px; border: 1px solid transparent; border-radius: var(--r-md);
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  font-size: 14px; font-weight: 600;
+  font-size: 14px; font-weight: 600; white-space: nowrap;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .btn:focus-visible { outline: 3px solid var(--acc); outline-offset: 2px; }

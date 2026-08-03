@@ -90,13 +90,14 @@ window.Pages = window.Pages || {};
               const missing = [];
               if (!l.video) missing.push('فيديو');
               if (!Store.questionsOf(l.id).length) missing.push('أسئلة');
+              const unit = Store.get().units.find((u) => u.id === l.unit);
               return [
                 h('div', h('div', { style: 'font-weight:600' }, l.title),
-                  h('div.faint.small', l.id)),
+                  unit && h('div.faint.small', unit.title)),
                 h('div.row--wrap.row', ...missing.map((m) => h('span.badge.badge--warn', m))),
                 C.actions(h('button.btn.btn--sec.btn--sm', {
                   onclick: () => App.go('content', { lesson: l.id }),
-                }, 'افتح الدرس')),
+                }, 'فتح')),
               ];
             })
           : h('div.center.muted', { style: 'padding:24px' },
