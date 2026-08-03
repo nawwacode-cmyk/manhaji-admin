@@ -179,9 +179,10 @@ window.App = (function () {
     canvas.height = canvas.offsetHeight;
 
     const COLORS = ['#2F6F73', '#57A9AD', '#F2B705', '#E4572E', '#5B8C5A'];
-    const particles = Array.from({ length: 260 }, () => ({
-      x: canvas.width / 2, y: canvas.height * 0.35,
-      vx: (Math.random() - 0.5) * 15, vy: (Math.random() - 1.6) * 15,
+    const particles = Array.from({ length: 200 }, () => ({
+      x: canvas.width / 2, y: canvas.height * 0.4,
+      vx: (Math.random() - 0.5) * 9,        // انفجار معتدل أفقيًا — لا يقذفها خارج عرض الشاشة
+      vy: -(4 + Math.random() * 10),        // دفعة صاعدة معتدلة، تعود بفعل الجاذبية بدل الهروب للأعلى
       size: 4 + Math.random() * 5,
       color: COLORS[Math.floor(Math.random() * COLORS.length)],
       rot: Math.random() * Math.PI * 2, vr: (Math.random() - 0.5) * 0.3,
@@ -192,8 +193,13 @@ window.App = (function () {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       let alive = false;
       for (const p of particles) {
-        p.life++; p.vy += 0.08; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
-        const fade = Math.max(0, 1 - p.life / 340);
+        p.life++; p.vy += 0.22; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+
+        // تختفي فور مغادرتها الحدود المرئية فعليًا (سقطت تحت الشاشة أو
+        // خرجت جانبيًا) — لا تعتمد فقط على تخمين رقمي للسرعة/الجاذبية
+        // يُفترض أنه يبقيها "غالبًا" ضمن الإطار.
+        const outOfBounds = p.y > canvas.height + 20 || p.x < -20 || p.x > canvas.width + 20;
+        const fade = outOfBounds ? 0 : Math.max(0, 1 - p.life / 260);
         if (fade <= 0) continue;
         alive = true;
         ctx.save();
