@@ -313,10 +313,12 @@ textarea.inp { height: auto; padding: 10px 12px; line-height: 1.75; resize: vert
 .welcome__confetti { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .welcome__card {
   position: relative; z-index: 1; text-align: center;
-  display: grid; justify-items: center; gap: 6px; width: min(360px, 100%);
+  display: grid; justify-items: center; gap: 6px; width: min(92vw, 900px);
   animation: welcomeIn 500ms var(--ease) both;
 }
-.welcome__h { font-size: 34px; font-weight: 800; }
+/* nowrap + clamp: يبقى العنوان بسطر واحد مهما طال اسم المستخدم، وحجمه
+   يتمدّد مع عرض الشاشة بدل رقم ثابت قد يفيض أو يبقى صغيرًا. */
+.welcome__h { font-size: clamp(28px, 4.2vw, 54px); font-weight: 800; white-space: nowrap; }
 .welcome__s { color: var(--txm); font-size: 15px; font-weight: 400; margin-bottom: 22px; }
 @keyframes welcomeIn {
   from { opacity: 0; transform: translateY(10px) scale(.97); }
