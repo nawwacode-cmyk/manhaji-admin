@@ -8,12 +8,21 @@ window.Pages = window.Pages || {};
 
   // --- الدخول ------------------------------------------------------------------
   Pages.login = () => {
-    const user = C.input({ placeholder: 'admin أو teacher', autocomplete: 'username' });
+    const user = C.input({ type: 'email', placeholder: 'name@example.com', autocomplete: 'username', dir: 'ltr' });
     const pass = C.input({ type: 'password', placeholder: '••••••', autocomplete: 'current-password' });
     const err = h('div');
+    let busy = false;
 
-    const submit = () => {
-      const e = Store.signIn(user.value.trim(), pass.value);
+    const submit = async () => {
+      if (busy) return;
+      if (!user.value.trim() || !pass.value) {
+        user.classList.add('is-err'); pass.classList.add('is-err');
+        err.replaceChildren(h('div.badge.badge--err', { style: 'margin-bottom:12px' }, 'أدخل البريد وكلمة المرور.'));
+        return;
+      }
+      busy = true; btn.disabled = true; btn.textContent = 'جارٍ الدخول…';
+      const e = await Store.signIn(user.value.trim(), pass.value);
+      busy = false; btn.disabled = false; btn.textContent = 'دخول';
       if (e) {
         user.classList.add('is-err'); pass.classList.add('is-err');
         err.replaceChildren(h('div.badge.badge--err', { style: 'margin-bottom:12px' }, e));
@@ -26,6 +35,8 @@ window.Pages = window.Pages || {};
       i.classList.remove('is-err'); err.replaceChildren();
     }));
 
+    const btn = h('button.btn.btn--primary.btn--block', { style: 'margin-top:6px', onclick: submit }, 'دخول');
+
     return h('div.login',
       h('div.login__card',
         h('div.login__logo',
@@ -37,14 +48,9 @@ window.Pages = window.Pages || {};
 
         C.card(null, h('div',
           err,
-          C.field('اسم المستخدم', user),
+          C.field('البريد الإلكتروني', user),
           C.field('كلمة المرور', pass),
-          h('button.btn.btn--primary.btn--block', { style: 'margin-top:6px', onclick: submit }, 'دخول'),
-          h('div.help.center', { style: 'margin-top:14px' },
-            'للتجربة: ', h('span.mono', 'admin / admin'), ' أو ', h('span.mono', 'teacher / teacher')))),
-
-        h('div.help.center', { style: 'margin-top:16px' },
-          'هذه شاشة مؤقتة — تُستبدل بـ Supabase Auth قبل الإنتاج.')),
+          btn))),
     );
   };
 

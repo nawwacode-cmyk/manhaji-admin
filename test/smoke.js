@@ -1,4 +1,11 @@
-// اختبار دخان لمنطق اللوحة — بلا متصفح:  node test/smoke.js
+// اختبار دخان لمنطق اللوحة — بلا متصفح ولا شبكة حقيقية:  node test/smoke.js
+//
+// بعد ربط اللوحة بـ Supabase حقيقي، صار المحتوى (كتب/وحدات/دروس/أسئلة) يبدأ
+// فارغًا حتى يُسجَّل الدخول فعليًا ويُستدعى loadAll() عبر الشبكة — فلا معنى
+// لاختبار "كتابان" أو "دروس الوحدة الأولى" كما في السابق (كانت SEED وهمية
+// محلية). بدلها: نختبر ما بقي منطقًا خالصًا بلا شبكة (الأدوار والصلاحيات،
+// توليد المعرّفات) + طبقة الشبكة نفسها (Api) عبر fetch مزيَّف — هذا الجزء
+// الجديد كليًا في هذه الجولة وأكثر ما يستحق تغطية.
 const fs = require('fs');
 const dir = require('node:path').join(__dirname, '..', 'js') + '/';
 
@@ -10,82 +17,101 @@ global.localStorage = {
   removeItem(k) { delete this._d[k]; },
 };
 global.document = { documentElement: { setAttribute() {} } };
+global.crypto = require('node:crypto').webcrypto;
 
+// --- fetch مزيَّف: يسجّل آخر طلب ويعيد استجابة نحدّدها مسبقًا ------------------
+let lastCall = null;
+let nextResponse = { status: 200, body: [] };
+global.fetch = async (url, opts = {}) => {
+  lastCall = { url, method: opts.method || 'GET', headers: opts.headers || {}, body: opts.body };
+  const { status, body } = nextResponse;
+  const raw = body === undefined ? '' : JSON.stringify(body);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => raw,
+    json: async () => (raw ? JSON.parse(raw) : {}),
+  };
+};
+
+eval(fs.readFileSync(dir + 'data/api.js', 'utf8'));
 eval(fs.readFileSync(dir + 'data/seed.js', 'utf8'));
 eval(fs.readFileSync(dir + 'store.js', 'utf8'));
 
 const fail = [];
 const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.push(n); };
 
-// --- الدخول والأدوار ---------------------------------------------------------
-ok('يرفض بيانات خاطئة', !!Store.signIn('x', 'y'));
-ok('يقبل الأدمن', Store.signIn('admin', 'admin') === null);
-ok('الأدمن يرى الأكواد', Store.can('codes'));
-ok('الأدمن يرى الطلاب', Store.can('students'));
+(async () => {
 
-Store.signOut();
-ok('الخروج يمسح الدور', Store.get().role === null);
-ok('بلا دور لا صلاحية', !Store.can('content'));
+  // --- الأدوار والصلاحيات (منطق محلي خالص، بلا شبكة) ---------------------------
+  // signIn الحقيقي الآن يستدعي الشبكة (Supabase Auth فعلي)، فلا نختبره هنا
+  // بمحاكاة كاملة؛ ما يستحق التغطية محليًا هو مصفوفة can() نفسها.
+  Store.set({ role: 'admin', user: 'admin@test' });
+  ok('الأدمن يرى الأكواد', Store.can('codes'));
+  ok('الأدمن يرى الطلاب', Store.can('students'));
+  ok('الأدمن يرى المحتوى', Store.can('content'));
 
-Store.signIn('teacher', 'teacher');
-ok('المدرّس يحرّر المحتوى', Store.can('content') && Store.can('questions'));
-ok('المدرّس لا يرى الأكواد', !Store.can('codes'));
-ok('المدرّس لا يرى الطلاب', !Store.can('students'));
+  Store.set({ role: 'teacher', user: 'teacher@test' });
+  ok('المدرّس يحرّر المحتوى', Store.can('content') && Store.can('questions'));
+  ok('المدرّس لا يرى الأكواد', !Store.can('codes'));
+  ok('المدرّس لا يرى الطلاب', !Store.can('students'));
 
-// --- الشجرة -------------------------------------------------------------------
-ok('كتابان', Store.get().books.length === 2);
-ok('وحدتان في كتاب الطالب', Store.unitsOf('student').length === 2);
-ok('الوحدات مرتّبة', Store.unitsOf('student')[0].order === 1);
-ok('دروس الوحدة الأولى', Store.lessonsOf('u1').length === 2);
-ok('مسارات الدروس كاملة', Store.lessonPaths().length === Store.get().lessons.length);
+  Store.signOut();
+  ok('الخروج يمسح الدور', Store.get().role === null);
+  ok('بلا دور لا صلاحية', !Store.can('content'));
+  ok('الخروج يفرّغ المحتوى المحمَّل', Store.get().books.length === 0);
 
-// --- الكتابة ------------------------------------------------------------------
-Store.upsert('lessons', { id: 'new-1', unit: 'u1', order: 3, title: 'درس تجريبي',
-                          topics: ['articles'], published: false });
-ok('إضافة درس', !!Store.lessonById('new-1'));
-Store.upsert('lessons', { id: 'new-1', title: 'عنوان معدّل' });
-ok('التعديل لا يمسح الحقول الأخرى',
-   Store.lessonById('new-1').title === 'عنوان معدّل' && Store.lessonById('new-1').unit === 'u1');
-Store.remove('lessons', 'new-1');
-ok('الحذف', !Store.lessonById('new-1'));
+  // --- newId(): معرّفات صالحة لعمود uuid بقاعدة البيانات ------------------------
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const ids = Array.from({ length: 500 }, () => Store.newId());
+  ok('newId ينتج UUID v4 صالحًا', ids.every((id) => UUID_RE.test(id)));
+  ok('newId لا يكرّر (٥٠٠ عيّنة)', new Set(ids).size === ids.length);
 
-// --- الإحصائيات ----------------------------------------------------------------
-const st = Store.stats();
-ok('عدّ الدروس', st.lessons === Store.get().lessons.length);
-ok('يميّز المنشور عن المسوّدة', st.lessonsPub < st.lessons);
-ok('يكشف الدروس الناقصة', st.gaps.length > 0);
-ok('الناقص = بلا فيديو أو بلا أسئلة',
-   st.gaps.every((l) => !l.video || Store.questionsOf(l.id).length === 0));
+  // --- Api.from(): بناء استعلام PostgREST الصحيح --------------------------------
+  nextResponse = { status: 200, body: [{ id: '1' }] };
+  await Api.from('lessons', { select: 'id,title_ar', order: 'sort_order' });
+  ok('from() يستهدف الجدول الصحيح', lastCall.url.includes('/rest/v1/lessons?'));
+  ok('from() يمرّر select', lastCall.url.includes('select=id%2Ctitle_ar'));
+  ok('from() يمرّر order', lastCall.url.includes('order=sort_order'));
+  ok('from() طلب GET', lastCall.method === 'GET');
 
-// --- سلامة الروابط --------------------------------------------------------------
-const s = Store.get();
-const bad = [];
-s.lessons.forEach((l) => {
-  if (!s.units.some((u) => u.id === l.unit)) bad.push(`درس ${l.id}: وحدة مجهولة`);
-  (l.topics || []).forEach((t) => {
-    if (!SEED.topics.some((x) => x.id === t)) bad.push(`درس ${l.id}: موضوع مجهول ${t}`);
-  });
-  if (l.video && !s.videos.some((v) => v.id === l.video)) bad.push(`درس ${l.id}: فيديو مفقود`);
-});
-s.questions.forEach((q) => {
-  if (q.lesson && !s.lessons.some((l) => l.id === q.lesson)) bad.push(`سؤال ${q.id}: درس مفقود`);
-  if (!SEED.topics.some((t) => t.id === q.topic)) bad.push(`سؤال ${q.id}: موضوع مجهول`);
-  if ((q.type === 'mcq' || q.type === 'multi') && !q.options.some((o) => o.correct))
-    bad.push(`سؤال ${q.id}: بلا إجابة صحيحة`);
-});
-s.exams.forEach((e) => e.questions.forEach((qid) => {
-  if (!s.questions.some((q) => q.id === qid)) bad.push(`امتحان ${e.id}: سؤال مفقود ${qid}`);
-}));
-ok('سلامة روابط البيانات', bad.length === 0);
-bad.forEach((b) => console.log('   ← ' + b));
+  // --- Api.upsert(): on_conflict=id + دمج لا استبدال -----------------------------
+  nextResponse = { status: 201, body: [{ id: 'x' }] };
+  await Api.upsert('questions', { id: 'x', stem_md: 'test' });
+  ok('upsert() على /rest/v1/<table>', lastCall.url.startsWith(Api.URL_BASE + '/rest/v1/questions'));
+  ok('upsert() يحدّد on_conflict=id', lastCall.url.includes('on_conflict=id'));
+  ok('upsert() طلب POST', lastCall.method === 'POST');
+  ok('upsert() يطلب resolution=merge-duplicates',
+     /resolution=merge-duplicates/.test(lastCall.headers.Prefer || ''));
+  ok('upsert() يرسل الصفّ بجسم الطلب', JSON.parse(lastCall.body).id === 'x');
 
-// --- سلامة الترميز: يكشف تلف UTF-8 مبكرًا ----------------------------------------
-const SRC = ['ui.js', 'store.js', 'components.js', 'app.js', 'data/seed.js',
-             'pages/dashboard.js', 'pages/content.js', 'pages/questions.js',
-             'pages/exams.js', 'pages/codes.js', 'pages/students.js', 'pages/videos.js'];
-const corrupt = SRC.filter((f) => /Ø|Ã˜/.test(fs.readFileSync(dir + f, 'utf8')));
-ok('لا تلف في ترميز الملفات', corrupt.length === 0);
-corrupt.forEach((f) => console.log('   ← ترميز تالف: ' + f));
+  // --- Api.remove(): حذف بمعرّف محدَّد -------------------------------------------
+  nextResponse = { status: 204, body: undefined };
+  await Api.remove('lessons', 'abc-123');
+  ok('remove() يفلتر بـ id=eq.', lastCall.url.includes('id=eq.abc-123'));
+  ok('remove() طلب DELETE', lastCall.method === 'DELETE');
 
-console.log('\n' + (fail.length ? `${fail.length} فشل` : 'كل الاختبارات نجحت'));
-process.exit(fail.length ? 1 : 0);
+  // --- Api.signInWithPassword(): نجاح وفشل ---------------------------------------
+  nextResponse = { status: 200, body: { access_token: 'tok', refresh_token: 'ref', expires_at: 9999999999 } };
+  await Api.signInWithPassword('a@b.com', 'secret');
+  ok('signInWithPassword يحفظ الجلسة عند النجاح', Api.isSignedIn());
+  ok('طلب الدخول بصيغة grant_type=password', lastCall.url.includes('grant_type=password'));
+
+  Api.signOut();
+  nextResponse = { status: 400, body: { error_description: 'Invalid credentials' } };
+  let loginErr = null;
+  try { await Api.signInWithPassword('a@b.com', 'wrong'); } catch (e) { loginErr = e; }
+  ok('signInWithPassword يرمي خطأً عند الرفض', loginErr instanceof Api.ApiError);
+  ok('لا تُحفظ جلسة عند الفشل', !Api.isSignedIn());
+
+  // --- سلامة الترميز: يكشف تلف UTF-8 مبكرًا ----------------------------------------
+  const SRC = ['ui.js', 'store.js', 'components.js', 'editors.js', 'app.js', 'data/api.js', 'data/seed.js',
+               'pages/dashboard.js', 'pages/content.js', 'pages/questions.js',
+               'pages/exams.js', 'pages/codes.js', 'pages/students.js', 'pages/videos.js'];
+  const corrupt = SRC.filter((f) => /Ø|Ã˜/.test(fs.readFileSync(dir + f, 'utf8')));
+  ok('لا تلف في ترميز الملفات', corrupt.length === 0);
+  corrupt.forEach((f) => console.log('   ← ترميز تالف: ' + f));
+
+  console.log('\n' + (fail.length ? `${fail.length} فشل` : 'كل الاختبارات نجحت'));
+  process.exit(fail.length ? 1 : 0);
+})();

@@ -21,6 +21,11 @@ window.UI = (function () {
         else if (k === 'style') el.setAttribute('style', v);
         else if (k === 'html')  el.innerHTML = v;      // محتوى ثابت من بياناتنا فقط
         else if (k === 'text')  el.textContent = v;
+        // value **خاصية** DOM لا سمة HTML — لـ textarea تحديدًا السمة عديمة
+        // الأثر كليًا (لا تُترجَم لا إلى المحتوى المعروض ولا لخاصية .value)،
+        // فكان كل نصّ سؤال أو شرح موجود مسبقًا يظهر فارغًا عند فتحه للتعديل.
+        // تعيين الخاصية يعمل بشكل صحيح لكل من input وtextarea معًا.
+        else if (k === 'value') el.value = v;
         else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
         else if (v === true)    el.setAttribute(k, '');
         else el.setAttribute(k, v);

@@ -5,6 +5,7 @@ window.Pages = window.Pages || {};
 
 (function () {
   const { h, fr, ar, icon } = UI;
+  const { sectionLabel } = Editors;
 
   Pages.content = (params = {}) => {
     const page = h('div.content');
@@ -82,16 +83,16 @@ window.Pages = window.Pages || {};
       const unit = s.units.find((u) => u.id === l.unit);
 
       // --- بيانات الدرس ---
+      // مُبسَّطة عمدًا لهذه المرحلة: الفيديو ورقم الصفحة والمواضيع الفرعية
+      // للدرس عناصر غير موصولة بعد (الفيديو) أو غير مُستهلَكة فعليًا في
+      // تطبيق الطالب (lesson_topics لا تُقرأ في أي شاشة حاليًا) — إعادتها
+      // تنتظر إعادة بناء اللوحة لاحقًا.
       const fTitle   = C.input({ value: l.title });
       const fOrder   = C.input({ type: 'number', value: l.order, min: 1, style: 'width:90px' });
       const fMinutes = C.input({ type: 'number', value: l.minutes, min: 1, style: 'width:90px' });
-      const fPage    = C.input({ type: 'number', value: l.page || '', min: 1, style: 'width:90px' });
       const fUnit    = C.select(s.units.map((u) => [u.id, u.title]), l.unit);
-      const fVideo   = C.select([['', '— بلا فيديو —'],
-                                 ...s.videos.map((v) => [v.id, v.title])], l.video || '');
 
       let free = l.free, published = l.published;
-      const topics = new Set(l.topics || []);
 
       // --- محرّر النص الغني ---
       const area = h('div.editor__area', { contenteditable: 'true', html: l.body || '' });
@@ -129,33 +130,125 @@ window.Pages = window.Pages || {};
         }, 'تنبيه'),
         h('button', { title: 'إزالة التنسيق', onclick: () => cmd('removeFormat') }, 'تنظيف'));
 
-      // --- المواضيع ---
-      const topicBox = h('div.row.row--wrap');
-      SEED.topics.forEach((t) => {
-        const on = topics.has(t.id);
-        const btn = h('button.btn.btn--sm' + (on ? '.btn--primary' : '.btn--sec'), t.name);
-        btn.addEventListener('click', () => {
-          topics.has(t.id) ? topics.delete(t.id) : topics.add(t.id);
-          btn.className = 'btn btn--sm ' + (topics.has(t.id) ? 'btn--primary' : 'btn--sec');
-        });
-        topicBox.appendChild(btn);
-      });
-
-      function save(publishState) {
+      async function save(publishState) {
         if (!fTitle.value.trim()) { fTitle.classList.add('is-err'); return C.toast('العنوان مطلوب', 'err'); }
-        if (!topics.size) return C.toast('اختر موضوعًا واحدًا على الأقل — بدونه لا يحرّك الدرس مؤشر التقدّم', 'err');
-        Store.upsert('lessons', {
-          id: l.id, unit: fUnit.value, order: +fOrder.value || 1,
-          title: fTitle.value.trim(), minutes: +fMinutes.value || 10,
-          page: +fPage.value || null, video: fVideo.value || null,
-          free, published: publishState !== undefined ? publishState : published,
-          topics: [...topics], body: area.innerHTML,
-        });
-        C.toast('حُفظ الدرس');
-        drawTree(); drawEditor();
+        try {
+          await Store.upsert('lessons', {
+            id: l.id, code: l.code, unit: fUnit.value, order: +fOrder.value || 1,
+            title: fTitle.value.trim(), minutes: +fMinutes.value || 10,
+            free, published: publishState !== undefined ? publishState : published,
+            body: area.innerHTML,
+          });
+          C.toast('حُفظ الدرس');
+          drawTree(); drawEditor();
+        } catch (e) {
+          C.toast('تعذّر حفظ الدرس: ' + (e.message || ''), 'err');
+        }
       }
 
-      const qCount = Store.questionsOf(l.id).length;
+      const qBox = h('div');
+      drawAttached();
+
+      function drawAttached() {
+        const attached = Store.questionsOf(l.id);
+        qBox.replaceChildren(
+          attached.length
+            ? h('div.list-sep', ...attached.map((q) => h('div.row', { style: 'padding:9px 2px;gap:8px' },
+                q.section
+                  ? h('span.badge.badge--acc', sectionLabel(q.section))
+                  : h('span.badge.badge--warn', 'غير مصنَّف'),
+                h('div.grow.small', q.stem.slice(0, 90) + (q.stem.length > 90 ? '…' : '')),
+                h('button.btn.btn--ghost.btn--sm', {
+                  title: 'إزالة من هذا الدرس',
+                  onclick: async () => {
+                    try {
+                      await Store.upsert('questions', { ...q, lesson: null });
+                      C.toast('أُزيل من الدرس'); drawAttached();
+                    } catch (e) { C.toast('تعذّر الحذف: ' + (e.message || ''), 'err'); }
+                  },
+                }, '✕ إزالة'))))
+            : h('div.help', 'لا أسئلة مرتبطة بهذا الدرس بعد.'),
+        );
+      }
+
+      /** منتقي: يضيف سؤالًا قائمًا من البنك إلى هذا الدرس دون فتح محرّره. */
+      function pickFromBank() {
+        let q = '', fSec = '', fUnit = '';
+        const body = h('div');
+
+        function drawList() {
+          const all = Store.get().questions;
+          let rows = all.filter((x) => x.lesson !== l.id);
+          if (fSec === '__none') rows = rows.filter((x) => !x.section);
+          else if (fSec)         rows = rows.filter((x) => x.section === fSec);
+          if (fUnit)             rows = rows.filter((x) => x.unitCode === fUnit);
+          if (q.trim())          rows = rows.filter((x) => x.stem.includes(q.trim()));
+          rows = rows.slice(0, 80);   // كفاية للتصفّح؛ البحث يضيّق أكثر
+
+          const list = h('div.list-sep', { style: 'max-height:360px;overflow:auto' },
+            ...(rows.length ? rows.map((x) => {
+              const otherLesson = x.lesson && x.lesson !== l.id ? Store.lessonById(x.lesson) : null;
+              return h('div.row', { style: 'padding:9px 2px;gap:8px;align-items:flex-start' },
+                h('div',
+                  x.section ? h('span.badge.badge--acc', sectionLabel(x.section))
+                            : h('span.badge.badge--warn', 'غ.م'),
+                  x.unitCode && h('div.faint', { style: 'font-size:10px;margin-top:2px' },
+                    Store.unitLabel(x.section, x.unitCode))),
+                h('div.grow',
+                  h('div.small', x.stem.slice(0, 100) + (x.stem.length > 100 ? '…' : '')),
+                  otherLesson && h('div.faint', { style: 'font-size:11px' },
+                    `مرتبط حاليًا بـ «${otherLesson.title}»`)),
+                h('div.row', { style: 'gap:6px;flex:none' },
+                  h('button.btn.btn--ghost.btn--sm', { onclick: () => Editors.previewQuestion(x) }, 'معاينة'),
+                  h('button.btn.btn--ghost.btn--sm', {
+                    onclick: () => Editors.question(x, { onSaved: () => { drawAttached(); drawList(); } }),
+                  }, 'تعديل'),
+                  h('button.btn.btn--sec.btn--sm', {
+                    onclick: async () => {
+                      const attach = async () => {
+                        try {
+                          await Store.upsert('questions', { ...x, lesson: l.id });
+                          C.toast('أُضيف السؤال إلى الدرس'); drawAttached(); drawList();
+                        } catch (e) { C.toast('تعذّر الإضافة: ' + (e.message || ''), 'err'); }
+                      };
+                      if (otherLesson) {
+                        C.confirmDialog('نقل السؤال؟',
+                          `هذا السؤال مرتبط حاليًا بدرس «${otherLesson.title}». إضافته هنا تنقله من هناك — `
+                          + 'سؤال واحد لا يمكن أن يتبع درسين معًا.',
+                          attach, 'انقله إلى هذا الدرس');
+                      } else await attach();
+                    },
+                  }, 'إضافة')));
+            }) : [h('div.help', { style: 'padding:10px 2px' }, 'لا أسئلة مطابقة.')]));
+
+          body.replaceChildren(
+            h('div.row.row--wrap', { style: 'gap:8px;margin-bottom:10px' },
+              (() => {
+                const i = C.input({ placeholder: 'ابحث في نص السؤال…', value: q, style: 'flex:1;min-width:160px' });
+                i.addEventListener('input', () => { q = i.value; clearTimeout(i._t); i._t = setTimeout(drawList, 250); });
+                return i;
+              })(),
+              (() => {
+                const sel = C.select([['', 'كل الأقسام'], ['__none', '⚠ غير مصنَّف'], ...Store.SECTIONS], fSec, { style: 'width:170px' });
+                sel.addEventListener('change', () => { fSec = sel.value; fUnit = ''; drawList(); });
+                return sel;
+              })(),
+              (() => {
+                const opts = Store.unitOptionsFor(fSec || 'unite');
+                const sel = C.select([['', 'كل الفروع'], ...opts], fUnit,
+                  { style: 'width:200px', disabled: !fSec || fSec === '__none' });
+                sel.addEventListener('change', () => { fUnit = sel.value; drawList(); });
+                return sel;
+              })()),
+            list);
+        }
+        drawList();
+
+        C.modal({
+          title: `أضف سؤالًا إلى «${l.title}»`, wide: true, body,
+          actions: [{ label: 'تم', kind: 'primary', onClick: (c) => c() }],
+        });
+      }
 
       editBox.replaceChildren(
         C.card('تحرير الدرس',
@@ -165,12 +258,7 @@ window.Pages = window.Pages || {};
               C.field('الوحدة', fUnit)),
             h('div.row', { style: 'gap:14px;flex-wrap:wrap' },
               C.field('الترتيب', fOrder),
-              C.field('الدقائق', fMinutes),
-              C.field('صفحة الكتاب', fPage, 'تساعد الطالب على إيجاده في الكتاب الورقي'),
-              h('div.field.grow', h('label', 'الفيديو'), fVideo)),
-
-            C.field('المواضيع', topicBox,
-              'الموضوع يربط الدرس بخريطة الإتقان و«تعلّم حسب الموضوع». درس بلا موضوع لا يحرّك المؤشر.'),
+              C.field('الدقائق', fMinutes)),
 
             h('div.field',
               h('label', 'نص الدرس'),
@@ -181,18 +269,28 @@ window.Pages = window.Pages || {};
               C.checkbox('درس مجاني (معاينة قبل الاشتراك)', free, (v) => { free = v; }),
               C.checkbox('منشور للطلاب', published, (v) => { published = v; })),
 
+            C.field('أسئلة هذا الدرس', h('div',
+              qBox,
+              h('button.btn.btn--sec.btn--sm', { style: 'margin-top:8px', onclick: pickFromBank },
+                '+ أضف من البنك')),
+              'يظهر السؤال في تمارين هذا الدرس تحديدًا. لإنشاء سؤال جديد كليًا استخدم بنك الأسئلة.'),
+
             h('div.row',
               h('button.btn.btn--primary', { onclick: () => save() }, 'حفظ'),
               !l.published && h('button.btn.btn--sec', { onclick: () => save(true) }, 'حفظ ونشر'),
-              h('button.btn.btn--sec', {
+              h('button.btn.btn--ghost.btn--sm', {
                 onclick: () => App.go('questions', { lesson: l.id }),
-              }, `الأسئلة (${ar(qCount)})`),
+              }, 'فتح في بنك الأسئلة'),
               h('div.grow'),
               h('button.btn.btn--danger.btn--sm', {
                 onclick: () => C.confirmDialog('حذف الدرس',
                   `سيُحذف «${l.title}». الأسئلة المرتبطة به لن تُحذف لكنها ستصبح بلا درس.`,
-                  () => { Store.remove('lessons', l.id); selected = null; C.toast('حُذف الدرس');
-                          drawTree(); drawEditor(); }, 'حذف'),
+                  async () => {
+                    try {
+                      await Store.remove('lessons', l.id);
+                      selected = null; C.toast('حُذف الدرس'); drawTree(); drawEditor();
+                    } catch (e) { C.toast('تعذّر الحذف: ' + (e.message || ''), 'err'); }
+                  }, 'حذف'),
               }, 'حذف الدرس')),
           ),
           C.pubBadge(l.published),
@@ -205,7 +303,8 @@ window.Pages = window.Pages || {};
     // =========================================================================
     function editBook(book) {
       const title = C.input({ value: book?.title || '', placeholder: 'كتاب الطالب' });
-      const grade = C.select(SEED.grades.map((g) => [g.id, g.name]), book?.grade || 'g9');
+      const grades = Store.get().grades;
+      const grade = C.select(grades.map((g) => [g.id, g.name]), book?.grade || grades[0]?.id || '');
       let published = book?.published ?? false;
 
       C.modal({
@@ -216,13 +315,15 @@ window.Pages = window.Pages || {};
           C.checkbox('منشور', published, (v) => { published = v; })),
         actions: [
           { label: 'إلغاء', onClick: (c) => c() },
-          { label: 'حفظ', kind: 'primary', onClick: (c) => {
+          { label: 'حفظ', kind: 'primary', onClick: async (c) => {
               if (!title.value.trim()) return C.toast('الاسم مطلوب', 'err');
-              Store.upsert('books', {
-                id: book?.id || 'b' + Date.now(), subject: 'fr',
-                grade: grade.value, title: title.value.trim(), published,
-              });
-              c(); C.toast('حُفظ الكتاب'); drawTree();
+              try {
+                await Store.upsert('books', {
+                  id: book?.id || Store.newId(), code: book?.code,
+                  grade: grade.value, title: title.value.trim(), published,
+                });
+                c(); C.toast('حُفظ الكتاب'); drawTree();
+              } catch (e) { C.toast('تعذّر الحفظ: ' + (e.message || ''), 'err'); }
             } },
         ],
       });
@@ -239,33 +340,44 @@ window.Pages = window.Pages || {};
           unit && { label: 'حذف', kind: 'danger', onClick: (c) => {
               c(); C.confirmDialog('حذف الوحدة',
                 'ستُحذف الوحدة ودروسها معها. لا يمكن التراجع.',
-                () => { Store.lessonsOf(unit.id).forEach((l) => Store.remove('lessons', l.id));
-                        Store.remove('units', unit.id); C.toast('حُذفت الوحدة'); drawTree(); drawEditor(); },
+                async () => {
+                  try {
+                    for (const l of Store.lessonsOf(unit.id)) await Store.remove('lessons', l.id);
+                    await Store.remove('units', unit.id);
+                    C.toast('حُذفت الوحدة'); drawTree(); drawEditor();
+                  } catch (e) { C.toast('تعذّر الحذف: ' + (e.message || ''), 'err'); }
+                },
                 'حذف نهائيًا');
             } },
           { label: 'إلغاء', onClick: (c) => c() },
-          { label: 'حفظ', kind: 'primary', onClick: (c) => {
+          { label: 'حفظ', kind: 'primary', onClick: async (c) => {
               if (!title.value.trim()) return C.toast('العنوان مطلوب', 'err');
-              Store.upsert('units', {
-                id: unit?.id || 'u' + Date.now(), book: unit?.book || bookId,
-                order: +order.value || 1, title: title.value.trim(),
-              });
-              c(); C.toast('حُفظت الوحدة'); drawTree();
+              try {
+                await Store.upsert('units', {
+                  id: unit?.id || Store.newId(), code: unit?.code,
+                  book: unit?.book || bookId, order: +order.value || 1, title: title.value.trim(),
+                });
+                c(); C.toast('حُفظت الوحدة'); drawTree();
+              } catch (e) { C.toast('تعذّر الحفظ: ' + (e.message || ''), 'err'); }
             } },
         ].filter(Boolean),
       });
     }
 
-    function newLesson(unitId) {
-      const id = 'l' + Date.now();
-      Store.upsert('lessons', {
-        id, unit: unitId, order: Store.lessonsOf(unitId).length + 1,
-        title: 'درس جديد', minutes: 10, free: false, published: false,
-        topics: [], body: '<h3>عنوان القسم الأول</h3><p>اكتب نص الدرس هنا…</p>', video: null,
-      });
-      selected = id;
-      drawTree(); drawEditor();
-      C.toast('أُنشئ درس — املأ بياناته ثم احفظ');
+    async function newLesson(unitId) {
+      const id = Store.newId();
+      try {
+        await Store.upsert('lessons', {
+          id, unit: unitId, order: Store.lessonsOf(unitId).length + 1,
+          title: 'درس جديد', minutes: 10, free: false, published: false,
+          topics: [], body: '<h3>عنوان القسم الأول</h3><p>اكتب نص الدرس هنا…</p>', video: null,
+        });
+        selected = id;
+        drawTree(); drawEditor();
+        C.toast('أُنشئ درس — املأ بياناته ثم احفظ');
+      } catch (e) {
+        C.toast('تعذّر إنشاء الدرس: ' + (e.message || ''), 'err');
+      }
     }
 
     drawTree(); drawEditor();

@@ -4,17 +4,22 @@
 window.App = (function () {
   const { h, ar, icon } = UI;
 
+  // مرحلة حالية مقصودة: مفردات هذا المشروع الآن هي إنهاء محتوى الفرنسي —
+  // الدروس وبنك الأسئلة فقط، متّصلان فعليًا بقاعدة بيانات حقيقية. باقي
+  // الأقسام (امتحانات مركَّبة، فيديو، أكواد، طلاب) لا تزال على بيانات وهمية
+  // ولا علاقة لها بهذه المرحلة، فأُخفيت من القائمة بدل أن تبدو جاهزة وهي
+  // ليست كذلك. صفحاتها موجودة كما هي بالكامل — أعد هذه الأسطر عند وصلها.
   const NAV = [
     { sec: 'الرئيسية' },
     { id: 'dashboard', label: 'لوحة المعلومات', ico: () => icon.grid(19) },
     { sec: 'المحتوى' },
     { id: 'content',   label: 'الدروس',      ico: () => icon.book(19) },
     { id: 'questions', label: 'بنك الأسئلة', ico: () => icon.help(19) },
-    { id: 'exams',     label: 'الامتحانات',  ico: () => icon.exam(19) },
-    { id: 'videos',    label: 'الفيديوهات',  ico: () => icon.video(19) },
-    { sec: 'الإدارة' },
-    { id: 'codes',     label: 'أكواد التفعيل', ico: () => icon.key(19) },
-    { id: 'students',  label: 'الطلاب',        ico: () => icon.users(19) },
+    // { id: 'exams',     label: 'الامتحانات',    ico: () => icon.exam(19) },
+    // { id: 'videos',    label: 'الفيديوهات',    ico: () => icon.video(19) },
+    // { sec: 'الإدارة' },
+    // { id: 'codes',     label: 'أكواد التفعيل', ico: () => icon.key(19) },
+    // { id: 'students',  label: 'الطلاب',        ico: () => icon.users(19) },
   ];
 
   const TITLES = {
