@@ -229,14 +229,14 @@ window.Pages = window.Pages || {};
                 return i;
               })(),
               (() => {
-                const sel = C.select([['', 'كل الأقسام'], ['__none', '⚠ غير مصنَّف'], ...Store.SECTIONS], fSec, { style: 'width:170px' });
+                const sel = C.select([['', 'كل الأقسام'], ['__none', '⚠ غير مصنَّف'], ...Store.SECTIONS], fSec, { class: 'filter-w' });
                 sel.addEventListener('change', () => { fSec = sel.value; fUnit = ''; drawList(); });
                 return sel;
               })(),
               (() => {
                 const opts = Store.unitOptionsFor(fSec || 'unite');
                 const sel = C.select([['', 'كل الفروع'], ...opts], fUnit,
-                  { style: 'width:200px', disabled: !fSec || fSec === '__none' });
+                  { class: 'filter-w', disabled: !fSec || fSec === '__none' });
                 sel.addEventListener('change', () => { fUnit = sel.value; drawList(); });
                 return sel;
               })()),

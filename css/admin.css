@@ -1,6 +1,8 @@
 /* =============================================================================
    لوحة منهاجي — واجهة إدارة
-   مصمّمة للشاشات الكبيرة أولًا: عمل المدرّس هنا كثيف بيانات لا يناسب الهاتف.
+   الأساس مصمّم للشاشات الكبيرة (عمل المدرّس هنا كثيف بيانات)، لكن الهاتف
+   مدعوم فعليًا عبر @media أسفل الملف — مراجعة سريعة لسؤال أو ربطه بدرس
+   لا تستدعي فتح حاسوب.
    ============================================================================= */
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -80,10 +82,35 @@ img, svg { max-width: 100%; display: block; }
 @media (max-width: 760px) {
   #app { flex-direction: column; }
   .rail { width: auto; flex: 0 0 auto; flex-direction: row; overflow-x: auto; padding: 8px; }
-  .rail__brand, .rail__sec, .rail__spacer, .rail__user { display: none; }
+  .rail__brand, .rail__sec, .rail__spacer { display: none; }
   .rail button { width: auto; white-space: nowrap; }
+
+  /* الخروج والوضع الليلي يبقيان مثبَّتين على الحافة — بلا هذا كان يختفيان
+     كليًا على الهاتف (rail__user كانت display:none)، فيعلق المدرّس بلا
+     طريقة يخرج بها من حسابه إلا بإغلاق التبويب. sticky يبقيهما ظاهرين
+     دائمًا رغم أن شريط التبويبات نفسه يمرَّر أفقيًا. */
+  .rail__user {
+    position: sticky; inset-inline-end: -8px; flex: 0 0 auto;
+    display: flex; align-items: center; gap: 6px;
+    border-top: 0; padding-inline: 10px; margin-inline-start: 6px;
+    background: var(--surf);
+  }
+  .rail__user .grow { display: none; }         /* الاسم والدور — ما يتّسع له عرض الهاتف */
+  .rail__user .row { margin-bottom: 0 !important; gap: 6px; }
+  .rail__user .btn--block { width: auto; }      /* زر «خروج» كان full-width، يكسر الشريط الأفقي */
+
+  /* صفّ الأزرار (حفظ/إلغاء/حذف…) يفيض أفقيًا على شاشة ضيّقة إن لم يُطوَ */
+  .row { flex-wrap: wrap; }
+
   .grid--2, .grid--3, .grid--4, .grid--side { grid-template-columns: 1fr; }
-  .content { padding: 16px; }
+  .content { padding: 14px; }
+
+  /* نافذة منبثقة: حشوة أقل تترك مساحة فعلية على شاشة ١٨٠-٣٦٠px */
+  .scrim { padding: 8px; }
+  .modal__f { flex-wrap: wrap; }
+
+  /* جدول بنك الأسئلة: أضيق قليلًا ليتّسع له عمود أو عمودان أكثر قبل التمرير */
+  .tbl th, .tbl td { padding: 9px 10px; font-size: 13px; }
 }
 
 /* --- إحصائية ------------------------------------------------------------------ */
@@ -140,6 +167,10 @@ textarea.inp { height: auto; padding: 10px 12px; line-height: 1.75; resize: vert
 .inp.is-err { border-color: var(--err); }
 .row { display: flex; align-items: center; gap: 10px; }
 .row--wrap { flex-wrap: wrap; }
+
+/* مرشّحات القوائم (بنك الأسئلة، منتقي الدرس): تتقلّص وتلتفّ بحسب العرض
+   المتاح بدل عرض ثابت بالبكسل — عرض ثابت بسمة style لا تطاله أي @media. */
+.filter-w { flex: 1 1 170px; min-width: 130px; }
 .grow { flex: 1; min-width: 0; }
 .muted { color: var(--txm); }
 .faint { color: var(--txf); }

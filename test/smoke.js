@@ -104,6 +104,29 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
   ok('signInWithPassword يرمي خطأً عند الرفض', loginErr instanceof Api.ApiError);
   ok('لا تُحفظ جلسة عند الفشل', !Api.isSignedIn());
 
+  // --- الهاتف: زر الخروج كان يختفي كليًا (rail__user: display:none)، وحقول
+  // الفلترة كانت بعرض ثابت بسمة style التي لا يطالها أي @media إطلاقًا -----------
+  const cssDir = require('node:path').join(__dirname, '..', 'css') + '/';
+  const adminCss = fs.readFileSync(cssDir + 'admin.css', 'utf8');
+  const mobileBlock = (adminCss.match(/@media \(max-width: 760px\) \{[\s\S]*?\n\}/) || [''])[0];
+  // ملاحظة: .rail__user \{[^}]*\} فقط (لا .rail__user .grow {...} الفرعية) —
+  // إخفاء .grow (اسم المستخدم) مقصود ومختلف عن إخفاء rail__user كلّها كما
+  // كان قبل الإصلاح.
+  ok('rail__user لا تُخفى كليًا على الهاتف', !/\.rail__user\s*\{[^}]*display:\s*none/.test(adminCss));
+  ok('rail__user مثبَّتة (sticky) لتبقى الأزرار قابلة للوصول',
+     /\.rail__user\s*\{[^}]*position:\s*sticky/.test(mobileBlock));
+  ok('.filter-w معرَّفة لعرض مرن للمرشّحات', /\.filter-w\s*\{/.test(adminCss));
+
+  // نتحقّق من عروض المرشّحات الثابتة تحديدًا (١٧٠-٢٣٠px) لا كل width:Npx
+  // بالملف — حقول رقمية ضيّقة عمدًا (رقم الترتيب/الدقائق بعرض 90px) سليمة
+  // ولا علاقة لها بمشكلة مرشّحات الهاتف.
+  const FILTER_WIDTHS = /style:\s*'width:(170|190|200|220|230)px'/;
+  const questionsSrc = fs.readFileSync(dir + 'pages/questions.js', 'utf8');
+  const contentSrc = fs.readFileSync(dir + 'pages/content.js', 'utf8');
+  ok('بنك الأسئلة لا يستعمل عرضًا ثابتًا بالبكسل للمرشّحات', !FILTER_WIDTHS.test(questionsSrc));
+  ok('منتقي الدرس لا يستعمل عرضًا ثابتًا بالبكسل للمرشّحات', !FILTER_WIDTHS.test(contentSrc));
+  ok('كلا الملفّين يستعملان filter-w', /filter-w/.test(questionsSrc) && /filter-w/.test(contentSrc));
+
   // --- سلامة الترميز: يكشف تلف UTF-8 مبكرًا ----------------------------------------
   const SRC = ['ui.js', 'store.js', 'components.js', 'editors.js', 'app.js', 'data/api.js', 'data/seed.js',
                'pages/dashboard.js', 'pages/content.js', 'pages/questions.js',

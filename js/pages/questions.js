@@ -69,10 +69,10 @@ window.Pages = window.Pages || {};
           }, 'اعرضها الآن')),
 
         h('div.row.row--wrap.mb',
-          h('div', { style: 'width:230px' }, selLesson),
-          h('div', { style: 'width:170px' }, selSection),
-          h('div', { style: 'width:220px' }, selUnit),
-          h('div', { style: 'width:190px' }, selTopic),
+          h('div.filter-w', selLesson),
+          h('div.filter-w', selSection),
+          h('div.filter-w', selUnit),
+          h('div.filter-w', selTopic),
           h('div.grow', { style: 'min-width:200px' }, inpSearch),
           h('button.btn.btn--primary', {
             onclick: () => Editors.question(null, {
