@@ -321,6 +321,15 @@ textarea.inp { height: auto; padding: 10px 12px; line-height: 1.75; resize: vert
 .welcome__h { font-size: clamp(28px, 4.2vw, 54px); font-weight: 800; white-space: nowrap; }
 .welcome__s { color: var(--txm); font-size: 15px; font-weight: 400; margin-bottom: 22px; }
 
+/* اسم المستخدم بلون التركوازي مع توهّج نابض بنفس اللون — يتحرّك ببطء
+   بلا توقّف بدل ظلّ ثابت، ليقرأ العين "توهّج" فعلي لا مجرّد لون مختلف. */
+.welcome__name { color: var(--acc); animation: nameGlow 2.2s ease-in-out infinite; }
+@keyframes nameGlow {
+  0%, 100% { text-shadow: 0 0 10px color-mix(in srgb, var(--acc) 55%, transparent); }
+  50%      { text-shadow: 0 0 22px color-mix(in srgb, var(--acc) 85%, transparent),
+                          0 0 42px color-mix(in srgb, var(--acc) 45%, transparent); }
+}
+
 /* دخول سينمائي: كل عنصر يتلاشى للظهور (تلاشي + تمويه خفيف) بترتيب
    متتابع بدل ظهور الكتلة كلّها دفعة واحدة — إحساس أقرب لعرض احترافي. */
 .welcome__h, .welcome__s, .welcome__card > .btn {

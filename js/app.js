@@ -222,13 +222,12 @@ window.App = (function () {
    */
   function showWelcome() {
     const s = Store.get();
-    const name = s.user ? ` ${s.user}` : '';
-    const greeting = s.role === 'teacher' ? `أهلًا وسهلًا أستاذ${name}` : `أهلًا بك${name}`;
+    const prefix = s.role === 'teacher' ? 'أهلًا وسهلًا أستاذ' : 'أهلًا بك';
 
     const wrap = h('div.welcome',
       h('canvas.welcome__confetti'),
       h('div.welcome__card',
-        h('div.welcome__h', greeting),
+        h('div.welcome__h', prefix + ' ', s.user && h('span.welcome__name', s.user)),
         h('div.welcome__s', 'جاهز ليوم عمل جديد'),
         h('button.btn.btn--primary', { onclick: () => go('dashboard') }, 'متابعة')));
 
