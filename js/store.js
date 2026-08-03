@@ -200,6 +200,35 @@ window.Store = (function () {
     return null;
   }
 
+  /**
+   * استئناف الجلسة بعد تحديث الصفحة.
+   *
+   * توكن Supabase يبقى صالحًا في localStorage (api.js) عبر أي تحديث، لكن
+   * حالة اللوحة هنا (الدور والمحتوى) لا تُحفَظ عمدًا — كانت تُعاد للصفر عند
+   * كل تحديث فيظهر أنّ الجلسة "طُردت" رغم أن التوكن نفسه سليم. تُعاد بناؤها
+   * هنا تمامًا كما بعد signIn، لكن بلا خطوة كلمة المرور.
+   */
+  async function resume() {
+    if (!Api.isSignedIn()) return false;
+
+    let profile;
+    try {
+      const rows = await Api.from('profiles', { select: 'id,full_name,role' });
+      profile = rows[0];
+    } catch {
+      return false;       // شبكة منقطعة — لا نطرد المستخدم، فقط نبقيه بلا دخول هذه المرة
+    }
+
+    if (!profile || !ROLES[profile.role]) {
+      Api.signOut();
+      return false;
+    }
+
+    set({ role: profile.role, user: profile.full_name || '' });
+    try { await loadAll(); } catch { /* الدخول نجح؛ المحتوى يُعاد جلبه لاحقًا */ }
+    return true;
+  }
+
   function signOut() {
     Api.signOut();
     set({ ...initial(), theme: state.theme });
@@ -410,7 +439,7 @@ window.Store = (function () {
   function reset() { signOut(); }
 
   return {
-    get, set, subscribe, ROLES, can, signIn, signOut, newId, SECTIONS,
+    get, set, subscribe, ROLES, can, signIn, signOut, resume, newId, SECTIONS,
     unitOptionsFor, unitLabel,
     upsert, remove, unitsOf, lessonsOf, questionsOf, lessonById,
     lessonPaths, stats, setTheme, reset,

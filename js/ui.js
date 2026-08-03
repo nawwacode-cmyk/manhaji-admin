@@ -100,6 +100,10 @@ window.UI = (function () {
     sync:     (s) => svg('<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/>', s),
     warn:     (s) => svg('<path d="M12 9v4"/><path d="M10.3 3.9 2.6 17.4A1.6 1.6 0 0 0 4 20h16a1.6 1.6 0 0 0 1.4-2.6L13.7 3.9a1.6 1.6 0 0 0-2.8 0Z"/><circle cx="12" cy="17" r=".8"/>', s),
     moon:     (s) => svg('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>', s),
+    sun:      (s) => svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/>'
+                       + '<path d="m4.9 4.9 1.4 1.4"/><path d="m17.7 17.7 1.4 1.4"/>'
+                       + '<path d="M2 12h2"/><path d="M20 12h2"/>'
+                       + '<path d="m6.3 17.7-1.4 1.4"/><path d="m19.1 4.9-1.4 1.4"/>', s),
     trophy:   (s) => svg('<path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3"/><path d="M7 5H4v2a3 3 0 0 0 3 3"/>', s),
 
     // اللوحة

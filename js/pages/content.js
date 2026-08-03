@@ -30,6 +30,9 @@ window.Pages = window.Pages || {};
           h('div.grow', b.title),
           C.pubBadge(b.published),
           h('button.btn.btn--ghost.btn--sm', {
+            title: 'تعديل الكتاب', onclick: () => editBook(b),
+          }, '✎'),
+          h('button.btn.btn--ghost.btn--sm', {
             title: 'إضافة وحدة', onclick: () => editUnit(null, b.id),
           }, '+ وحدة')));
 
@@ -314,6 +317,22 @@ window.Pages = window.Pages || {};
           C.field('الصف', grade),
           C.checkbox('منشور', published, (v) => { published = v; })),
         actions: [
+          book && { label: 'حذف', kind: 'danger', onClick: (c) => {
+              c(); C.confirmDialog('حذف الكتاب',
+                `سيُحذف «${book.title}» بكل وحداته ودروسه. لا يمكن التراجع.`,
+                async () => {
+                  try {
+                    for (const u of Store.unitsOf(book.id)) {
+                      for (const l of Store.lessonsOf(u.id)) await Store.remove('lessons', l.id);
+                      await Store.remove('units', u.id);
+                    }
+                    await Store.remove('books', book.id);
+                    if (selected && !Store.lessonById(selected)) selected = null;
+                    C.toast('حُذف الكتاب'); drawTree(); drawEditor();
+                  } catch (e) { C.toast('تعذّر الحذف: ' + (e.message || ''), 'err'); }
+                },
+                'حذف نهائيًا');
+            } },
           { label: 'إلغاء', onClick: (c) => c() },
           { label: 'حفظ', kind: 'primary', onClick: async (c) => {
               if (!title.value.trim()) return C.toast('الاسم مطلوب', 'err');
@@ -325,7 +344,7 @@ window.Pages = window.Pages || {};
                 c(); C.toast('حُفظ الكتاب'); drawTree();
               } catch (e) { C.toast('تعذّر الحفظ: ' + (e.message || ''), 'err'); }
             } },
-        ],
+        ].filter(Boolean),
       });
     }
 

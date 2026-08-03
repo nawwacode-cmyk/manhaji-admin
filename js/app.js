@@ -73,18 +73,33 @@ window.App = (function () {
       h('div.rail__spacer'),
 
       h('div.rail__user',
-        h('div.row', { style: 'margin-bottom:8px' },
-          h('div.grow',
-            h('div', { style: 'font-weight:700;font-size:14px' }, s.user || '—'),
-            h('div.faint', { style: 'font-size:12px' }, role ? role.label : '')),
-          h('button.btn.btn--ghost.btn--sm', {
-            title: 'الوضع الليلي',
-            onclick: () => { Store.setTheme(s.theme === 'dark' ? 'light' : 'dark'); render(); },
-          }, s.theme === 'dark' ? '☀' : '☾')),
-        h('button.btn.btn--ghost.btn--sm.btn--block', {
+        h('div.rail__uname', s.user || '—'),
+        h('div.faint', { style: 'font-size:12px;margin-bottom:10px' }, role ? role.label : ''),
+        h('button.btn.btn--danger.btn--sm.btn--block', {
           onclick: () => { Store.signOut(); render(); },
         }, 'خروج')),
     );
+  }
+
+  /** مفتاح الوضع الليلي — بزاوية الترويسة العلوية اليسارية، بشكل on/off
+   *  بين أيقونتَي شمس/قمر (بدل زر نصّي كان مدفونًا أسفل الشريط الجانبي). */
+  function themeToggle() {
+    const s = Store.get();
+    const isDark = s.theme === 'dark';
+    const setTheme = (dark) => { Store.setTheme(dark ? 'dark' : 'light'); render(); };
+
+    const input = h('input', { type: 'checkbox', checked: isDark });
+    input.addEventListener('change', () => setTheme(input.checked));
+
+    const sun  = h('span.theme-ic' + (isDark ? '' : '.is-on'),
+      { onclick: () => setTheme(false) }, icon.sun(16));
+    const moon = h('span.theme-ic' + (isDark ? '.is-on' : ''),
+      { onclick: () => setTheme(true) }, icon.moon(16));
+
+    return h('div.switch-wrap', { title: 'الوضع الليلي' },
+      sun,
+      h('label.switch', input, h('span.switch__track', h('span.switch__thumb'))),
+      moon);
   }
 
   function render() {
@@ -105,7 +120,7 @@ window.App = (function () {
     const [title, sub] = TITLES[current] || ['', ''];
     const page = (Pages[current] || Pages.dashboard)(params);
 
-    main.replaceChildren(C.pageHead(title, sub), page);
+    main.replaceChildren(C.pageHead(title, sub, themeToggle()), page);
     drawRail();
   }
 
@@ -115,9 +130,58 @@ window.App = (function () {
     main?.querySelector('.content')?.scrollTo(0, 0);
   }
 
-  function boot() {
+  // قلم يكتب بحلقة لا نهائية — طابع "تعليمي" بدل مؤشر تحميل عام. SVG ثابت
+  // بمحتوى معروف من عندنا، فاستخدام html هنا آمن (لا نصّ طالب يُمسَح).
+  const PENCIL_SVG = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="pencil">
+      <defs><clipPath id="pencil-eraser"><rect height="30" width="30" ry="5" rx="5"></rect></clipPath></defs>
+      <circle transform="rotate(-113,100,100)" stroke-linecap="round" stroke-dashoffset="439.82" stroke-dasharray="439.82 439.82" stroke-width="2" stroke="currentColor" fill="none" r="70" class="pencil__stroke"></circle>
+      <g transform="translate(100,100)" class="pencil__rotate">
+        <g fill="none">
+          <circle transform="rotate(-90)" stroke-dashoffset="402" stroke-dasharray="402.12 402.12" stroke-width="30" stroke="hsl(223,90%,50%)" r="64" class="pencil__body1"></circle>
+          <circle transform="rotate(-90)" stroke-dashoffset="465" stroke-dasharray="464.96 464.96" stroke-width="10" stroke="hsl(223,90%,60%)" r="74" class="pencil__body2"></circle>
+          <circle transform="rotate(-90)" stroke-dashoffset="339" stroke-dasharray="339.29 339.29" stroke-width="10" stroke="hsl(223,90%,40%)" r="54" class="pencil__body3"></circle>
+        </g>
+        <g transform="rotate(-90) translate(49,0)" class="pencil__eraser">
+          <g class="pencil__eraser-skew">
+            <rect height="30" width="30" ry="5" rx="5" fill="hsl(223,90%,70%)"></rect>
+            <rect clip-path="url(#pencil-eraser)" height="30" width="5" fill="hsl(223,90%,60%)"></rect>
+            <rect height="20" width="30" fill="hsl(223,10%,90%)"></rect>
+            <rect height="20" width="15" fill="hsl(223,10%,70%)"></rect>
+            <rect height="20" width="5" fill="hsl(223,10%,80%)"></rect>
+            <rect height="2" width="30" y="6" fill="hsla(223,10%,10%,0.2)"></rect>
+            <rect height="2" width="30" y="13" fill="hsla(223,10%,10%,0.2)"></rect>
+          </g>
+        </g>
+        <g transform="rotate(-90) translate(49,-30)" class="pencil__point">
+          <polygon points="15 0,30 30,0 30" fill="hsl(33,90%,70%)"></polygon>
+          <polygon points="15 0,6 30,0 30" fill="hsl(33,90%,50%)"></polygon>
+          <polygon points="15 0,20 10,10 10" fill="hsl(223,10%,10%)"></polygon>
+        </g>
+      </g>
+    </svg>`;
+
+  function renderLoading() {
+    // width:100% ضروري: #app حاوية flex صفّية، فبلا هذا يتقلّص العنصر
+    // الوحيد بداخلها إلى عرض نصّه فيظهر بزاوية الشاشة لا وسطها (نفس سبب
+    // مشكلة .login في admin.css).
+    document.getElementById('app').replaceChildren(
+      h('div.boot-splash', { style: 'width:100%;height:100dvh' },
+        h('div', { html: PENCIL_SVG })));
+  }
+
+  async function boot() {
     const s = Store.get();
     document.documentElement.setAttribute('data-theme', s.theme);
+
+    // توكن Supabase قد يبقى صالحًا عبر تحديث الصفحة حتى لو لم تُحفَظ حالة
+    // اللوحة (الدور/المحتوى) محليًا — بلا هذا كان كل تحديث يبدو كطرد من
+    // الجلسة رغم أن الدخول ما زال سليمًا فعليًا على السيرفر.
+    if (!s.role && Api.isSignedIn()) {
+      renderLoading();
+      await Store.resume();
+    }
+
     render();
   }
 

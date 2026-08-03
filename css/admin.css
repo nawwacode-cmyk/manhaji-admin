@@ -31,7 +31,7 @@ img, svg { max-width: 100%; display: block; }
 }
 .rail__brand { display: flex; align-items: center; gap: 11px; padding: 4px 8px 16px; }
 .rail__name { font-weight: 700; font-size: 18px; }
-.rail__tag { font-size: 11px; color: var(--txm); }
+.rail__tag { font-size: 11px; color: var(--txm); margin-top: 3px; }
 .rail__sec { padding: 14px 12px 5px; font-size: 11px; font-weight: 700; color: var(--txf); }
 .rail button {
   position: relative; display: flex; align-items: center; gap: 11px;
@@ -48,6 +48,31 @@ img, svg { max-width: 100%; display: block; }
 }
 .rail__spacer { flex: 1; }
 .rail__user { border-top: 1px solid var(--brd); padding: 12px 10px 2px; }
+.rail__uname {
+  font-weight: 700; font-size: 14px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+/* --- مفتاح الوضع الليلي (on/off) --------------------------------------------- */
+.switch-wrap { display: inline-flex; align-items: center; gap: 8px; }
+.theme-ic {
+  display: inline-flex; color: var(--txf); cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.theme-ic.is-on { color: var(--acc); }
+.switch { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch__track {
+  display: inline-block; width: 40px; height: 23px; border-radius: 999px;
+  background: var(--brd2); transition: background var(--dur) var(--ease);
+}
+.switch__thumb {
+  position: absolute; top: 2px; inset-inline-start: 2px; width: 19px; height: 19px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35);
+  transition: inset-inline-start var(--dur) var(--ease);
+}
+.switch input:checked + .switch__track { background: var(--acc); }
+.switch input:checked + .switch__track .switch__thumb { inset-inline-start: 19px; }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
@@ -95,8 +120,7 @@ img, svg { max-width: 100%; display: block; }
     border-top: 0; padding-inline: 10px; margin-inline-start: 6px;
     background: var(--surf);
   }
-  .rail__user .grow { display: none; }         /* الاسم والدور — ما يتّسع له عرض الهاتف */
-  .rail__user .row { margin-bottom: 0 !important; gap: 6px; }
+  .rail__user .rail__uname, .rail__user > .faint { display: none; }  /* الاسم والدور — ما يتّسع له عرض الهاتف */
   .rail__user .btn--block { width: auto; }      /* زر «خروج» كان full-width، يكسر الشريط الأفقي */
 
   /* صفّ الأزرار (حفظ/إلغاء/حذف…) يفيض أفقيًا على شاشة ضيّقة إن لم يُطوَ */
@@ -275,6 +299,68 @@ textarea.inp { height: auto; padding: 10px 12px; line-height: 1.75; resize: vert
 .bar > i { display: block; height: 100%; background: var(--acc); transition: width 400ms var(--ease); }
 
 /* --- شاشة الدخول ------------------------------------------------------------------- */
-.login { display: grid; place-items: center; height: 100dvh; padding: 24px; }
+/* width:100% ضروري لأن #app حاوية flex (صفّية افتراضيًا) — بدونها يتقلّص
+   هذا العنصر الوحيد بداخلها إلى عرض محتواه فيظهر بزاوية الشاشة لا وسطها. */
+.login { display: grid; place-items: center; width: 100%; height: 100dvh; padding: 24px; }
 .login__card { width: min(420px, 100%); }
 .login__logo { display: flex; align-items: center; gap: 12px; justify-content: center; margin-bottom: 22px; }
+
+/* --- سبلاش التحميل (قلم يكتب) -------------------------------------------------- */
+/* width/height:100% + place-items:center يمركزان القلم تمامًا بمنتصف الشاشة */
+.boot-splash { display: grid; place-items: center; color: var(--acc); }
+
+.pencil { display: block; width: 90px; height: 90px; }
+
+/* مدّة أطول (كانت 3s) كي تكتمل اللفّة كاملةً بوضوح لا أن تمرّ خاطفة */
+.pencil__body1, .pencil__body2, .pencil__body3,
+.pencil__eraser, .pencil__eraser-skew, .pencil__point,
+.pencil__rotate, .pencil__stroke {
+  animation-duration: 6s; animation-timing-function: linear; animation-iteration-count: infinite;
+}
+/* لون القلم الرئيسي = لون التطبيق التركوازي (--acc) بدل الأزرق الأصلي —
+   CSS هنا يتغلّب على سمة stroke المكتوبة داخل الـ SVG نفسها. */
+.pencil__body1 { animation-name: pencilBody1; stroke: var(--acc); }
+.pencil__body2 { animation-name: pencilBody2; stroke: color-mix(in srgb, var(--acc) 65%, white); }
+.pencil__body3 { animation-name: pencilBody3; stroke: color-mix(in srgb, var(--acc) 65%, black); }
+.pencil__eraser { animation-name: pencilEraser; animation-timing-function: cubic-bezier(.4,0,.2,1); }
+.pencil__eraser-skew { animation-name: pencilEraserSkew; animation-timing-function: cubic-bezier(.4,0,.2,1); }
+.pencil__point { animation-name: pencilPoint; }
+.pencil__rotate { animation-name: pencilRotate; animation-timing-function: linear; }
+.pencil__stroke { animation-name: pencilStroke; }
+
+@keyframes pencilBody1 {
+  from, to { stroke-dashoffset: 351.86; transform: rotate(-90deg); }
+  50%      { stroke-dashoffset: 150.8;  transform: rotate(-225deg); }
+}
+@keyframes pencilBody2 {
+  from, to { stroke-dashoffset: 406.84; transform: rotate(-90deg); }
+  50%      { stroke-dashoffset: 174.36; transform: rotate(-225deg); }
+}
+@keyframes pencilBody3 {
+  from, to { stroke-dashoffset: 296.88; transform: rotate(-90deg); }
+  50%      { stroke-dashoffset: 127.23; transform: rotate(-225deg); }
+}
+@keyframes pencilEraser {
+  from, to { transform: rotate(-45deg) translate(49px,0); }
+  50%      { transform: rotate(0deg) translate(49px,0); }
+}
+@keyframes pencilEraserSkew {
+  from, 32.5%, 67.5%, to { transform: skewX(0); }
+  35%, 65%               { transform: skewX(-4deg); }
+  37.5%, 62.5%           { transform: skewX(8deg); }
+  40%, 45%, 50%, 55%, 60% { transform: skewX(-15deg); }
+  42.5%, 47.5%, 52.5%, 57.5% { transform: skewX(15deg); }
+}
+@keyframes pencilPoint {
+  from, to { transform: rotate(-90deg) translate(49px,-30px); }
+  50%      { transform: rotate(-225deg) translate(49px,-30px); }
+}
+@keyframes pencilRotate {
+  from { transform: translate(100px,100px) rotate(0); }
+  to   { transform: translate(100px,100px) rotate(720deg); }
+}
+@keyframes pencilStroke {
+  from     { stroke-dashoffset: 439.82; transform: translate(100px,100px) rotate(-113deg); }
+  50%      { stroke-dashoffset: 164.93; transform: translate(100px,100px) rotate(-113deg); }
+  75%, to  { stroke-dashoffset: 439.82; transform: translate(100px,100px) rotate(112deg); }
+}
