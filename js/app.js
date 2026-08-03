@@ -75,7 +75,8 @@ window.App = (function () {
       h('div.rail__user',
         h('div.rail__uname', s.user || '—'),
         h('div.faint', { style: 'font-size:12px;margin-bottom:10px' }, role ? role.label : ''),
-        h('button.btn.btn--danger.btn--sm.btn--block', {
+        h('button.btn.btn--ghost.btn--sm.btn--block', {
+          style: 'color:var(--err)',
           onclick: () => { Store.signOut(); render(); },
         }, 'خروج')),
     );
@@ -170,6 +171,70 @@ window.App = (function () {
         h('div', { html: PENCIL_SVG })));
   }
 
+  // انفجار قصير من الورق الملوّن — بلا مكتبة خارجية (canvas عادي)، فقط
+  // لحظة ترحيب بعد الدخول الناجح فعلًا لا كل مرّة يُفتح فيها التطبيق.
+  function fireConfetti(canvas) {
+    const ctx = canvas.getContext('2d');
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+
+    const COLORS = ['#2F6F73', '#57A9AD', '#F2B705', '#E4572E', '#5B8C5A'];
+    const particles = Array.from({ length: 140 }, () => ({
+      x: canvas.width / 2, y: canvas.height * 0.35,
+      vx: (Math.random() - 0.5) * 13, vy: (Math.random() - 1.6) * 11,
+      size: 4 + Math.random() * 5,
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      rot: Math.random() * Math.PI * 2, vr: (Math.random() - 0.5) * 0.3,
+      life: 0,
+    }));
+
+    function tick() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+      for (const p of particles) {
+        p.life++; p.vy += 0.22; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+        const fade = Math.max(0, 1 - p.life / 90);
+        if (fade <= 0) continue;
+        alive = true;
+        ctx.save();
+        ctx.globalAlpha = fade;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+        ctx.restore();
+      }
+      if (alive) requestAnimationFrame(tick);
+    }
+    tick();
+  }
+
+  /**
+   * شاشة ترحيب لحظية بعد الدخول الناجح — تحلّ محلّ #app كليًا (بلا شريط
+   * جانبي ولا ترويسة) ثم تنتقل تلقائيًا للوحة المعلومات، أو فورًا بضغطة زر.
+   */
+  function showWelcome() {
+    const s = Store.get();
+    const name = s.user ? ` ${s.user}` : '';
+    const greeting = s.role === 'teacher' ? `أهلًا وسهلًا أستاذ${name}` : `أهلًا بك${name}`;
+
+    let done = false;
+    const proceed = () => { if (done) return; done = true; clearTimeout(timer); go('dashboard'); };
+
+    const wrap = h('div.welcome',
+      h('canvas.welcome__confetti'),
+      h('div.welcome__card',
+        h('img', { src: 'assets/icon-192.png', alt: '', width: 60, height: 60,
+                   style: 'border-radius:16px' }),
+        h('div.welcome__h', greeting),
+        h('div.welcome__s', 'جاهز ليوم عمل جديد على لوحة منهاجي.'),
+        h('button.btn.btn--primary', { onclick: proceed }, 'المتابعة إلى اللوحة')));
+
+    document.getElementById('app').replaceChildren(wrap);
+    fireConfetti(wrap.querySelector('canvas'));
+    const timer = setTimeout(proceed, 4000);
+  }
+
   async function boot() {
     const s = Store.get();
     document.documentElement.setAttribute('data-theme', s.theme);
@@ -185,7 +250,7 @@ window.App = (function () {
     render();
   }
 
-  return { go, render, boot };
+  return { go, render, boot, showWelcome };
 })();
 
 document.addEventListener('DOMContentLoaded', App.boot);

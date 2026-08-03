@@ -28,7 +28,7 @@ window.Pages = window.Pages || {};
         err.replaceChildren(h('div.badge.badge--err', { style: 'margin-bottom:12px' }, e));
         return;
       }
-      App.go('dashboard');
+      App.showWelcome();
     };
     [user, pass].forEach((i) => i.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') submit();
