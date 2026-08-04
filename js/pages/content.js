@@ -186,7 +186,9 @@ window.Pages = window.Pages || {};
           else if (fSec)         rows = rows.filter((x) => x.section === fSec);
           if (fUnit)             rows = rows.filter((x) => x.unitCode === fUnit);
           if (q.trim())          rows = rows.filter((x) => x.stem.includes(q.trim()));
-          rows = rows.slice(0, 80);   // كفاية للتصفّح؛ البحث يضيّق أكثر
+          // بلا سقف: بنك الأسئلة صار مئات الأسئلة، وسقف ٨٠ كان يخفي أسئلة
+          // حقيقية بصمت عن المدرّس بدل أن يظهر له كل ما يطابق الفلتر.
+          // الحاوية أصلًا قابلة للتمرير (max-height أدناه).
 
           const list = h('div.list-sep', { style: 'max-height:360px;overflow:auto' },
             ...(rows.length ? rows.map((x) => {
