@@ -41,6 +41,7 @@ window.Store = (function () {
     students: structuredClone(SEED.students),
 
     theme: 'light',
+    railCollapsed: false,   // طيّ الشريط الجانبي لأيقونات فقط — تفضيل جهاز محلي (آيباد مثلًا)
   });
 
   let state = load();
@@ -50,11 +51,16 @@ window.Store = (function () {
     try {
       const raw = localStorage.getItem(KEY);
       const saved = raw ? JSON.parse(raw) : {};
-      return { ...initial(), theme: saved.theme || 'light', route: saved.route || null };
+      return { ...initial(), theme: saved.theme || 'light', route: saved.route || null,
+               railCollapsed: !!saved.railCollapsed };
     } catch { return initial(); }
   }
   function persist() {
-    try { localStorage.setItem(KEY, JSON.stringify({ theme: state.theme, route: state.route })); } catch {}
+    try {
+      localStorage.setItem(KEY, JSON.stringify({
+        theme: state.theme, route: state.route, railCollapsed: state.railCollapsed,
+      }));
+    } catch {}
   }
 
   function set(patch) {
@@ -232,7 +238,7 @@ window.Store = (function () {
 
   function signOut() {
     Api.signOut();
-    set({ ...initial(), theme: state.theme });
+    set({ ...initial(), theme: state.theme, railCollapsed: state.railCollapsed });
   }
 
   /** يُستدعى أيضًا بعد كل كتابة ناجحة — أبسط من تحديث الحالة المحلية يدويًا

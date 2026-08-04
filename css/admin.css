@@ -28,6 +28,7 @@ img, svg { max-width: 100%; display: block; }
   width: 250px; flex: 0 0 250px; padding: 18px 12px;
   background: var(--surf); border-inline-end: 1px solid var(--brd);
   display: flex; flex-direction: column; gap: 3px; overflow-y: auto;
+  transition: width var(--dur) var(--ease), flex-basis var(--dur) var(--ease);
 }
 .rail__brand { display: flex; align-items: center; gap: 11px; padding: 4px 8px 16px; }
 .rail__name { font-weight: 700; font-size: 18px; }
@@ -52,6 +53,29 @@ img, svg { max-width: 100%; display: block; }
   font-weight: 700; font-size: 14px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
+
+/* --- طيّ الشريط الجانبي لأيقونات فقط (مفيد خصوصًا على آيباد) ------------------ */
+.rail__toggle {
+  color: var(--txf); font-size: 13px; margin-bottom: 8px;
+  border-bottom: 1px solid var(--brd); border-radius: 0; padding-bottom: 14px;
+}
+.rail.is-collapsed {
+  width: 68px; flex-basis: 68px;
+}
+.rail.is-collapsed .rail__brand { justify-content: center; padding-inline: 0; }
+.rail.is-collapsed .rail__brand-t,
+.rail.is-collapsed .rail__sec,
+.rail.is-collapsed .rail__label {
+  display: none;
+}
+.rail.is-collapsed button,
+.rail.is-collapsed .rail__toggle {
+  justify-content: center; padding-inline: 0; gap: 0;
+}
+.rail.is-collapsed .rail__user { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.rail.is-collapsed .rail__uname,
+.rail.is-collapsed .rail__user > .faint { display: none; }
+.rail.is-collapsed .rail__user .btn--block { width: auto; padding: 8px; }
 
 /* --- مفتاح الوضع الليلي (on/off) --------------------------------------------- */
 .switch-wrap { display: inline-flex; align-items: center; gap: 8px; }
@@ -106,8 +130,8 @@ img, svg { max-width: 100%; display: block; }
 }
 @media (max-width: 760px) {
   #app { flex-direction: column; }
-  .rail { width: auto; flex: 0 0 auto; flex-direction: row; overflow-x: auto; padding: 8px; }
-  .rail__brand, .rail__sec, .rail__spacer { display: none; }
+  .rail, .rail.is-collapsed { width: auto; flex: 0 0 auto; flex-direction: row; overflow-x: auto; padding: 8px; }
+  .rail__brand, .rail__sec, .rail__spacer, .rail__toggle { display: none; }
   .rail button { width: auto; white-space: nowrap; }
 
   /* الخروج والوضع الليلي يبقيان مثبَّتين على الحافة — بلا هذا كان يختفيان
@@ -122,6 +146,9 @@ img, svg { max-width: 100%; display: block; }
   }
   .rail__user .rail__uname, .rail__user > .faint { display: none; }  /* الاسم والدور — ما يتّسع له عرض الهاتف */
   .rail__user .btn--block { width: auto; }      /* زر «خروج» كان full-width، يكسر الشريط الأفقي */
+  /* تفضيل الطيّ (railCollapsed) محفوظ محليًا وقد يبقى فعّالًا حتى لو صار
+     العرض هاتفًا — نتجاهله هون تحديدًا فلا يقلب صفّ رأس المستخدم لعمود. */
+  .rail.is-collapsed .rail__user { flex-direction: row; }
 
   /* صفّ الأزرار (حفظ/إلغاء/حذف…) يفيض أفقيًا على شاشة ضيّقة إن لم يُطوَ */
   .row { flex-wrap: wrap; }

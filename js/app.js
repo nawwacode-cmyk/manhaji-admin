@@ -46,14 +46,25 @@ window.App = (function () {
   function drawRail() {
     const s = Store.get();
     const role = Store.ROLES[s.role];
+    const collapsed = !!s.railCollapsed;
+    rail.classList.toggle('is-collapsed', collapsed);
 
     rail.replaceChildren(
       h('div.rail__brand',
         h('img', { src: 'assets/icon-192.png', alt: '', width: 40, height: 40,
                    style: 'border-radius:11px' }),
-        h('div',
+        h('div.rail__brand-t',
           h('div.rail__name', 'لوحة منهاجي'),
           h('div.rail__tag', 'إدارة المحتوى والاشتراكات'))),
+
+      // طيّ/فتح الشريط الجانبي — تفضيل يبقى محفوظًا محليًا (مفيد خصوصًا
+      // على آيباد حيث عرض الشاشة الكامل ثمين).
+      h('button.rail__toggle', {
+        title: collapsed ? 'توسيع القائمة' : 'طيّ القائمة',
+        onclick: () => { Store.set({ railCollapsed: !collapsed }); drawRail(); },
+      }, h('span', { style: `display:inline-flex;transform:rotate(${collapsed ? -90 : 90}deg)` },
+             icon.chevron(16)),
+         h('span.rail__label', 'طيّ القائمة')),
 
       ...NAV.flatMap((it) => {
         if (it.sec) {
@@ -65,9 +76,9 @@ window.App = (function () {
         }
         if (!Store.can(it.id)) return [];
         return [h('button', {
-          class: current === it.id ? 'is-on' : '',
+          class: current === it.id ? 'is-on' : '', title: it.label,
           onclick: () => go(it.id),
-        }, it.ico(), it.label)];
+        }, it.ico(), h('span.rail__label', it.label))];
       }),
 
       h('div.rail__spacer'),
@@ -76,9 +87,9 @@ window.App = (function () {
         h('div.rail__uname', s.user || '—'),
         h('div.faint', { style: 'font-size:12px;margin-bottom:10px' }, role ? role.label : ''),
         h('button.btn.btn--ghost.btn--sm.btn--block', {
-          style: 'color:var(--err)',
+          style: 'color:var(--err)', title: 'خروج',
           onclick: () => { Store.signOut(); render(); },
-        }, 'خروج')),
+        }, icon.logout(16), h('span.rail__label', 'خروج'))),
     );
   }
 
