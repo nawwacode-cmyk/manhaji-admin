@@ -47,14 +47,23 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
   // signIn الحقيقي الآن يستدعي الشبكة (Supabase Auth فعلي)، فلا نختبره هنا
   // بمحاكاة كاملة؛ ما يستحق التغطية محليًا هو مصفوفة can() نفسها.
   Store.set({ role: 'admin', user: 'admin@test' });
-  ok('الأدمن يرى الأكواد', Store.can('codes'));
-  ok('الأدمن يرى الطلاب', Store.can('students'));
-  ok('الأدمن يرى المحتوى', Store.can('content'));
+  ok('المدير يرى الأكواد', Store.can('codes'));
+  ok('المدير يرى الطلاب', Store.can('students'));
+  ok('المدير يرى المحتوى', Store.can('content'));
+  ok('المدير يرى المواد', Store.can('subjects'));
+  ok('المدير يرى الأساتذة والبانرات', Store.can('teachers') && Store.can('banners'));
+  ok('المدير يرى الطاقم وسجل النشاط', Store.can('staff') && Store.can('audit'));
 
   Store.set({ role: 'teacher', user: 'teacher@test' });
-  ok('المدرّس يحرّر المحتوى', Store.can('content') && Store.can('questions'));
-  ok('المدرّس لا يرى الأكواد', !Store.can('codes'));
-  ok('المدرّس لا يرى الطلاب', !Store.can('students'));
+  ok('الأستاذ يحرّر المحتوى', Store.can('content') && Store.can('questions'));
+  ok('الأستاذ لا يرى الأكواد', !Store.can('codes'));
+  ok('الأستاذ لا يرى الطلاب', !Store.can('students'));
+  // هذه الأربعة يفرضها السيرفر بـ is_admin()؛ إظهارها للأستاذ يعني صفحة
+  // تُفتح ثم تفشل كل عملياتها بـ403 — تطابقُ القائمتين مقصود لا تجميلي.
+  ok('الأستاذ لا يدير المواد', !Store.can('subjects'));
+  ok('الأستاذ لا يدير الأساتذة', !Store.can('teachers'));
+  ok('الأستاذ لا يدير البانرات', !Store.can('banners'));
+  ok('الأستاذ لا يدير الطاقم ولا يقرأ السجل', !Store.can('staff') && !Store.can('audit'));
 
   Store.signOut();
   ok('الخروج يمسح الدور', Store.get().role === null);
@@ -86,10 +95,33 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
   ok('upsert() يرسل الصفّ بجسم الطلب', JSON.parse(lastCall.body).id === 'x');
 
   // --- Api.remove(): حذف بمعرّف محدَّد -------------------------------------------
-  nextResponse = { status: 204, body: undefined };
+  nextResponse = { status: 200, body: [{ id: 'abc-123' }] };
   await Api.remove('lessons', 'abc-123');
   ok('remove() يفلتر بـ id=eq.', lastCall.url.includes('id=eq.abc-123'));
   ok('remove() طلب DELETE', lastCall.method === 'DELETE');
+
+  // --- الكتابة الممنوعة بـRLS: تعود بنجاح وقائمة فارغة، لا بخطأ -----------------
+  // أخطر سلوك في هذه الطبقة: PostgREST لا يُخطئ حين تمنع RLS التحديث — تُصفّي
+  // الصفوف فلا يتطابق شيء ويعود 200 بقائمة فارغة. بلا الفحص كانت اللوحة تقول
+  // «حُفظ» بينما القاعدة لم تتغيّر. ظهر فعليًا بعد حصر الأستاذ بموادّه.
+  const denied = async (fn) => {
+    nextResponse = { status: 200, body: [] };
+    try { await fn(); return null; } catch (e) { return e; }
+  };
+  let e1 = await denied(() => Api.upsert('lessons', { id: 'x', title_ar: 'y' }));
+  ok('upsert يرمي خطأً حين تمنعه RLS', e1 instanceof Api.ApiError && e1.code === 'rls_denied');
+  ok('رسالة المنع بالعربية وتشرح السبب', /صلاحية/.test(e1?.message || ''));
+
+  let e2 = await denied(() => Api.remove('lessons', 'x'));
+  ok('remove يرمي خطأً حين تمنعه RLS', e2 instanceof Api.ApiError && e2.code === 'rls_denied');
+  ok('remove يطلب تمثيل المحذوف ليكشف المنع',
+     /return=representation/.test(lastCall.headers.Prefer || ''));
+
+  // إدراج ناجح يعيد صفًّا — يجب ألّا يُعتبر منعًا
+  nextResponse = { status: 201, body: [{ id: 'ok' }] };
+  let e3 = null;
+  try { await Api.upsert('lessons', { id: 'ok' }); } catch (e) { e3 = e; }
+  ok('الكتابة الناجحة لا تُعدّ منعًا', e3 === null);
 
   // --- Api.signInWithPassword(): نجاح وفشل ---------------------------------------
   nextResponse = { status: 200, body: { access_token: 'tok', refresh_token: 'ref', expires_at: 9999999999 } };
@@ -127,10 +159,93 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
   ok('منتقي الدرس لا يستعمل عرضًا ثابتًا بالبكسل للمرشّحات', !FILTER_WIDTHS.test(contentSrc));
   ok('كلا الملفّين يستعملان filter-w', /filter-w/.test(questionsSrc) && /filter-w/.test(contentSrc));
 
+  // --- تعدّد المواد: لا تثبيت على الفرنسي بعد اليوم ---------------------------------
+  const storeSrc = fs.readFileSync(dir + 'store.js', 'utf8');
+  const appSrc   = fs.readFileSync(dir + 'app.js', 'utf8');
+  ok('loadAll لا يثبّت المادة على fr', !/code === 'fr'/.test(storeSrc));
+  ok('المادة الفعّالة تُحفظ محليًا', /subjectId: saved\.subjectId/.test(storeSrc));
+  ok('المادة الفعّالة تسقط للأولى إن اختفت المحفوظة',
+     /subjects\.some\(\(s\) => s\.id === state\.subjectId\)/.test(storeSrc));
+  ok('الدروس محصورة بكورسات المادة الفعّالة', /bookIds\.has\(u\.course_id\)/.test(storeSrc));
+  ok('الأسئلة محصورة بالمادة الفعّالة', /q\.subject_id === subjectId/.test(storeSrc));
+  ok('مبدّل المادة موجود بالرأس', /function subjectSwitcher/.test(appSrc)
+     && /subjectSwitcher\(\)/.test(appSrc));
+  // contentCounts تُبنى قبل التصفية — فحصُ الحذف بـbooks المصفّاة كان سيقول
+  // «فارغة» عن كل مادة غير فعّالة ويسمح بحذفها وهي مليئة.
+  ok('فحص محتوى المادة لا يعتمد على القوائم المصفّاة',
+     /contentCounts\[id\]/.test(storeSrc) && !/subjectHasContent = \(id\) => state\.books/.test(storeSrc));
+
+  // --- هوية الجلسة: صفّي أنا لا أول صفّ يعود ---------------------------------------
+  // بقّ حقيقي وقع: المدير يرى كل الملفات (admin_read_all_profiles)، فقراءة
+  // profiles بلا مرشِّح ثم أخذ rows[0] أعطته اسم أستاذ **ودورَه**. الأستاذ لم
+  // يكشفه لأنه يرى صفّه وحده. لو صادف أن الأول لطالب لانقفلت اللوحة على المدير.
+  ok('لا قراءة profiles بلا مرشِّح', !/Api\.from\('profiles', \{ select: 'id,full_name,role' \}\)/.test(storeSrc));
+  ok('الملف الشخصي يُقرأ بمرشِّح المعرّف', /eq: \{ id: uid \}/.test(storeSrc));
+  ok('signIn و resume كلاهما يمرّان بـmyProfile',
+     (storeSrc.match(/await myProfile\(\)/g) || []).length === 2);
+
+  const apiSrc = fs.readFileSync(dir + 'data/api.js', 'utf8');
+  ok('Api.userId يقرأ sub من التوكن', /function userId\(\)/.test(apiSrc) && /\.sub/.test(apiSrc));
+  ok('from() يدعم المرشِّح eq', /eq\.\$\{v\}|`eq\.\$\{v\}`/.test(apiSrc) || /eq\.\$/.test(apiSrc));
+
+  // اختبار وظيفي لمنطق الاختيار نفسه: بمعرّف محدَّد لا يُختار الأول
+  const fakeRows = [
+    { id: 'other', full_name: 'أستاذ', role: 'teacher' },
+    { id: 'me', full_name: 'مدير', role: 'admin' },
+  ];
+  const pickFirst = fakeRows[0];
+  const pickMine = fakeRows.find((r) => r.id === 'me');
+  ok('أخذ الأول يعطي هوية خاطئة (توثيق البق)', pickFirst.role === 'teacher');
+  ok('الاختيار بالمعرّف يعطي الهوية الصحيحة', pickMine.role === 'admin' && pickMine.full_name === 'مدير');
+
+  // --- طبقة الإدارة: أين يُنفَّذ كل فعل ---------------------------------------------
+  // القاعدة التي يقوم عليها التصميم كله: جداول المال والهوية لا يلمسها
+  // المتصفح مباشرةً. أي انزلاق هنا (قراءة subscriptions بـ Api.from مثلًا)
+  // يفتح قاعدة العملاء لأي ثغرة XSS في اللوحة.
+  const staffSrc    = fs.readFileSync(dir + 'pages/staff.js', 'utf8');
+  const codesSrc    = fs.readFileSync(dir + 'pages/codes.js', 'utf8');
+  const studentsSrc = fs.readFileSync(dir + 'pages/students.js', 'utf8');
+  const dashSrc     = fs.readFileSync(dir + 'pages/dashboard.js', 'utf8');
+
+  ok('الطاقم عبر Edge Function لا PostgREST',
+     /Api\.invoke\('admin-staff'/.test(staffSrc) && !/Api\.from\(/.test(staffSrc));
+  ok('الأكواد عبر Edge Function لا PostgREST',
+     /Api\.invoke\('admin-codes'/.test(codesSrc) && !/Api\.from\(/.test(codesSrc));
+  ok('الطلاب عبر RPC لا قراءة جداول',
+     /Api\.rpc\('admin_students'/.test(studentsSrc)
+     && !/Api\.from\('(subscriptions|devices|profiles)'/.test(studentsSrc));
+  ok('الداشبورد عبر admin_stats', /Api\.rpc\('admin_stats'\)/.test(dashSrc));
+
+  // لا صفحة تقرأ جداول المال مباشرةً بأي شكل
+  const ALL_PAGES = ['staff', 'codes', 'students', 'dashboard', 'audit',
+                     'subjects', 'teachers', 'banners'];
+  const leaky = ALL_PAGES.filter((p) => {
+    const src = fs.readFileSync(dir + `pages/${p}.js`, 'utf8');
+    return /Api\.from\('(subscriptions|activation_codes|devices|code_batches|redeem_attempts)'/.test(src);
+  });
+  ok('لا صفحة تقرأ جداول المال/الأجهزة مباشرةً', leaky.length === 0, leaky.join(', '));
+
+  // القائمة الجانبية لا تعرض شيئًا لا يفرضه السيرفر
+  ok('أقسام الإدارة كلها في صلاحيات المدير وحده',
+     ['students', 'codes', 'staff', 'audit', 'subjects', 'teachers', 'banners']
+       .every((x) => Store.ROLES.admin.can.includes(x) && !Store.ROLES.teacher.can.includes(x)));
+
+  // الأكواد الصريحة: تنزيل فوري لا زرّ اختياري
+  ok('ملف الأكواد يُنزَّل تلقائيًا فور التوليد',
+     /C\.download\(file, csv\)[\s\S]{0,80}showCodes/.test(codesSrc)
+     || /C\.download\(file, csv\);\s*\n\s*close\(\);/.test(codesSrc));
+  ok('الأكواد لا تُخزَّن محليًا', !/localStorage[\s\S]{0,40}codes/i.test(codesSrc));
+
+  // stats() المحلية ما عادت تخترع أرقام طلاب/أكواد من SEED الوهمية
+  ok('stats المحلية بلا أرقام طلاب أو أكواد وهمية',
+     !/students:\s*s\.students\.length/.test(storeSrc)
+     && !/codes:\s*s\.batches/.test(storeSrc));
+
   // --- سلامة الترميز: يكشف تلف UTF-8 مبكرًا ----------------------------------------
   const SRC = ['ui.js', 'store.js', 'components.js', 'editors.js', 'app.js', 'data/api.js', 'data/seed.js',
-               'pages/dashboard.js', 'pages/content.js', 'pages/questions.js',
-               'pages/exams.js', 'pages/codes.js', 'pages/students.js', 'pages/videos.js'];
+               'pages/dashboard.js', 'pages/subjects.js', 'pages/teachers.js', 'pages/banners.js',
+               'pages/content.js', 'pages/questions.js', 'pages/exams.js', 'pages/codes.js',
+               'pages/students.js', 'pages/staff.js', 'pages/audit.js', 'pages/videos.js'];
   const corrupt = SRC.filter((f) => /Ø|Ã˜/.test(fs.readFileSync(dir + f, 'utf8')));
   ok('لا تلف في ترميز الملفات', corrupt.length === 0);
   corrupt.forEach((f) => console.log('   ← ترميز تالف: ' + f));
