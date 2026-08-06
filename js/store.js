@@ -16,9 +16,24 @@ window.Store = (function () {
 
   const KEY = 'manhaji.admin.v1';   // يخزّن هلق فقط: theme (لا محتوى بعد اليوم)
 
+  /**
+   * الأدوار. `admin` تبقى قيمة قاعدة البيانات وتُعرض «مدير» — إعادة تسميتها
+   * إلى manager تمسّ ~٢٠ سياسة RLS ودالتين وتطبيقين بلا مكسب وظيفي.
+   *
+   * ⚠️ هذه القائمة تُخفي الأزرار فقط، وليست حاجزًا أمنيًا. الحاجز الحقيقي
+   * سياسات RLS ودوال is_admin()/owns_course() على السيرفر — أي عنصر هنا
+   * لا يقابله فرضٌ هناك يعني صفحةً تُفتح ثم تفشل كل عملياتها بـ403، أو أسوأ.
+   */
   const ROLES = {
-    admin:   { label: 'أدمن',  can: ['content', 'questions', 'exams', 'videos', 'codes', 'students', 'dashboard'] },
-    teacher: { label: 'مدرّس', can: ['content', 'questions', 'exams', 'videos', 'dashboard'] },
+    admin: {
+      label: 'مدير',
+      can: ['dashboard', 'subjects', 'content', 'questions', 'exams', 'videos',
+            'teachers', 'banners', 'students', 'codes', 'staff', 'audit'],
+    },
+    teacher: {
+      label: 'أستاذ',
+      can: ['dashboard', 'content', 'questions', 'exams', 'videos'],
+    },
   };
 
   // أنواع الأسئلة: تسمية اللوحة الداخلية ↔ enum قاعدة البيانات الحقيقي
@@ -30,15 +45,18 @@ window.Store = (function () {
     route: null,   // آخر صفحة نشطة {name, params} — لاستئنافها بعد تحديث الصفحة
 
     // --- من Supabase حقيقةً ---
+    // subjectId = المادة الفعّالة التي يتبعها كل ما تعرضه الصفحات. كانت مثبّتة
+    // على 'fr' بالكود؛ صارت اختيارًا يحفظه المستخدم ويبدّله من رأس اللوحة.
     subjectId: null, defaultGradeId: null,
-    grades: [],
+    subjects: [], grades: [],
     books: [], units: [], lessons: [], questions: [],
+    contentCounts: {},   // subjectId → عدد الكورسات+الأسئلة تحتها (قبل التصفية)
 
-    // --- ما زالت وهمية عمدًا (غير موصولة بهذه التمريرة) ---
+    // الطلاب والأكواد والطاقم لم تعد هنا: صفحاتها تقرأ من السيرفر مباشرةً
+    // (RPCs و Edge Functions) لأن جداولها ممنوعة على العميل. الامتحانات
+    // والفيديوهات ما زالت وهمية وصفحاتهما مخفيّتان من القائمة.
     exams:    structuredClone(SEED.exams),
     videos:   structuredClone(SEED.videos),
-    batches:  structuredClone(SEED.batches),
-    students: structuredClone(SEED.students),
 
     theme: 'light',
     railCollapsed: false,   // طيّ الشريط الجانبي لأيقونات فقط — تفضيل جهاز محلي (آيباد مثلًا)
@@ -52,13 +70,15 @@ window.Store = (function () {
       const raw = localStorage.getItem(KEY);
       const saved = raw ? JSON.parse(raw) : {};
       return { ...initial(), theme: saved.theme || 'light', route: saved.route || null,
-               railCollapsed: !!saved.railCollapsed };
+               railCollapsed: !!saved.railCollapsed,
+               subjectId: saved.subjectId || null };
     } catch { return initial(); }
   }
   function persist() {
     try {
       localStorage.setItem(KEY, JSON.stringify({
         theme: state.theme, route: state.route, railCollapsed: state.railCollapsed,
+        subjectId: state.subjectId,
       }));
     } catch {}
   }
@@ -82,6 +102,10 @@ window.Store = (function () {
   // (camelCase مسطّح) الذي تتوقّعه content.js وquestions.js كما كُتبتا أصلًا
   // على SEED الوهمية.
   // ---------------------------------------------------------------------------
+  function fromDbSubject(s) {
+    return { id: s.id, code: s.code, name: s.name_ar, native: s.name_native || '',
+             color: s.color_hex || '', order: s.sort_order };
+  }
   function fromDbCourse(c) {
     return { id: c.id, subject: c.subject_id, grade: c.grade_id, code: c.code,
              title: c.title_ar, published: c.is_published };
@@ -173,6 +197,24 @@ window.Store = (function () {
     return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
   }
 
+  /**
+   * صفّي أنا في profiles — مرشَّحًا بمعرّفي لا `rows[0]`.
+   *
+   * ⚠️ الفرق ليس تحسينًا: سياسة admin_read_all_profiles تجعل المدير يرى كل
+   * الملفات، فأخذُ أول صفّ يعطيه هوية شخص آخر **ودورَه**. حدث ذلك فعليًا —
+   * أول مدير دخل ظهرت له هوية أستاذ وصلاحياته لأن صفّ الأستاذ كان الأول.
+   * ولو صادف أن الأول لطالب لانقفلت اللوحة في وجه المدير بلا سبب مفهوم.
+   *
+   * الأستاذ لم يكشف الخلل لأنه يرى صفّه وحده (read_own_profile).
+   */
+  async function myProfile() {
+    const uid = Api.userId();
+    if (!uid) throw new Error('تعذّر تحديد هوية الجلسة.');
+    const rows = await Api.from('profiles',
+      { select: 'id,full_name,role', eq: { id: uid } });
+    return rows[0];
+  }
+
   // ---------------------------------------------------------------------------
   // تسجيل الدخول: Supabase Auth حقيقي، ثم التحقّق من الدور، ثم تحميل المحتوى
   // ---------------------------------------------------------------------------
@@ -185,8 +227,7 @@ window.Store = (function () {
 
     let profile;
     try {
-      const rows = await Api.from('profiles', { select: 'id,full_name,role' });
-      profile = rows[0];
+      profile = await myProfile();
     } catch (e) {
       Api.signOut();
       return 'تعذّر التحقّق من صلاحياتك: ' + (e.message || '');
@@ -198,6 +239,11 @@ window.Store = (function () {
     }
 
     set({ role: profile.role, user: profile.full_name || email });
+
+    // أثرٌ لكل وصول إداري. كلمة مرور مسرَّبة تعطي وصولًا صامتًا مستمرًّا —
+    // الطالب على الأقل يلاحظ أنه طُرد بسبب الجلسة الواحدة. فشلُ التسجيل لا
+    // يمنع الدخول: سجلٌّ ناقص أهون من قفل المدير خارج لوحته.
+    Api.rpc('log_staff_login').catch(() => {});
 
     try {
       await loadAll();
@@ -220,8 +266,7 @@ window.Store = (function () {
 
     let profile;
     try {
-      const rows = await Api.from('profiles', { select: 'id,full_name,role' });
-      profile = rows[0];
+      profile = await myProfile();
     } catch {
       return false;       // شبكة منقطعة — لا نطرد المستخدم، فقط نبقيه بلا دخول هذه المرة
     }
@@ -247,7 +292,7 @@ window.Store = (function () {
     set({ loading: true });
     const [subjects, grades, courses, units, lessons, questions, options] =
       await Promise.all([
-        Api.from('subjects', { select: 'id,code' }),
+        Api.from('subjects', { select: '*', order: 'sort_order' }),
         Api.from('grades',   { select: 'id,code,name_ar', order: 'sort_order' }),
         Api.from('courses',  { select: '*' }),
         Api.from('units',    { select: '*', order: 'sort_order' }),
@@ -256,7 +301,12 @@ window.Store = (function () {
         Api.from('question_options', { select: '*', order: 'sort_order' }),
       ]);
 
-    const subject = subjects.find((s) => s.code === 'fr');
+    // المادة الفعّالة: المحفوظة إن كانت ما زالت موجودة، وإلّا الأولى. الشرط
+    // الثاني ضروري — مادة حُذفت أو تغيّر معرّفها كانت تترك اللوحة فارغة بصمت.
+    const subjectId = subjects.some((s) => s.id === state.subjectId)
+      ? state.subjectId
+      : (subjects[0]?.id || null);
+
     const grade12 = grades.find((g) => g.code === 'g12');
 
     const optionsOfQ = new Map();
@@ -265,22 +315,45 @@ window.Store = (function () {
       optionsOfQ.get(o.question_id).push(o);
     });
 
+    // كل ما تعرضه الصفحات محصور بالمادة الفعّالة. الوحدات والدروس تتبع
+    // كورسات تلك المادة، فلا تتسرّب وحدةُ مادةٍ أخرى إلى شجرة الدروس.
+    const contentCounts = {};
+    const bump = (sid) => { if (sid) contentCounts[sid] = (contentCounts[sid] || 0) + 1; };
+    courses.forEach((c) => bump(c.subject_id));
+    questions.forEach((q) => bump(q.subject_id));
+
+    const books = courses.filter((c) => c.subject_id === subjectId).map(fromDbCourse);
+    const bookIds = new Set(books.map((b) => b.id));
+    const scopedUnits = units.filter((u) => bookIds.has(u.course_id)).map(fromDbUnit);
+    const unitIds = new Set(scopedUnits.map((u) => u.id));
+
     set({
       loading: false,
-      subjectId: subject?.id || null,
+      subjectId,
       defaultGradeId: grade12?.id || grades[0]?.id || null,
+      subjects: subjects.map(fromDbSubject),
+      contentCounts,
       grades: grades.map((g) => ({ id: g.id, name: g.name_ar })),
-      books:     courses.map(fromDbCourse),
-      units:     units.map(fromDbUnit),
-      lessons:   lessons.map(fromDbLesson),
-      questions: questions.map((q) => fromDbQuestion(q, optionsOfQ.get(q.id) || [])),
+      books,
+      units:   scopedUnits,
+      lessons: lessons.filter((l) => unitIds.has(l.unit_id)).map(fromDbLesson),
+      questions: questions.filter((q) => q.subject_id === subjectId)
+        .map((q) => fromDbQuestion(q, optionsOfQ.get(q.id) || [])),
     });
+  }
+
+  /** تبديل المادة الفعّالة — يُعاد تحميل كل شيء لأن كل القوائم محصورة بها. */
+  async function setActiveSubject(id) {
+    if (id === state.subjectId) return;
+    set({ subjectId: id });
+    await loadAll();
   }
 
   // ---------------------------------------------------------------------------
   // كتابة — مرسَلة حسب المجموعة إلى الجدول الحقيقي المطابق
   // ---------------------------------------------------------------------------
   async function upsert(coll, row) {
+    if (coll === 'subjects')  return upsertSubject(row);
     if (coll === 'books')     return upsertBook(row);
     if (coll === 'units')     return upsertUnit(row);
     if (coll === 'lessons')   return upsertLesson(row);
@@ -292,6 +365,19 @@ window.Store = (function () {
       if (i >= 0) list[i] = { ...list[i], ...row }; else list.push(row);
       return { [coll]: list };
     });
+  }
+
+  async function upsertSubject(row) {
+    const dbRow = {
+      id: row.id,
+      code: (row.code || '').trim().toLowerCase(),
+      name_ar: row.name,
+      name_native: row.native || null,
+      color_hex: row.color || null,
+      sort_order: Number(row.order) || 0,
+    };
+    await Api.upsert('subjects', dbRow);
+    await loadAll();     // المادة قد تكون الأولى فتصير الفعّالة تلقائيًا
   }
 
   async function upsertBook(row) {
@@ -383,7 +469,8 @@ window.Store = (function () {
     });
   }
 
-  const TABLE_OF = { books: 'courses', units: 'units', lessons: 'lessons', questions: 'questions' };
+  const TABLE_OF = { subjects: 'subjects', books: 'courses', units: 'units',
+                     lessons: 'lessons', questions: 'questions' };
 
   async function remove(coll, id) {
     const table = TABLE_OF[coll];
@@ -392,6 +479,9 @@ window.Store = (function () {
       return;
     }
     await Api.remove(table, id);
+    // حذف المادة يجرف كورساتها ووحداتها ودروسها بـcascade — نعيد التحميل
+    // كاملًا بدل ترقيع الحالة المحلية، وقد تكون هي المادة الفعّالة أصلًا.
+    if (coll === 'subjects') { set({ subjectId: null }); return loadAll(); }
     set((s) => {
       const patch = { [coll]: s[coll].filter((x) => x.id !== id) };
       // حذف درس يُصفّر lesson_id لأسئلته في القاعدة تلقائيًا (on delete set null)؛
@@ -421,20 +511,21 @@ window.Store = (function () {
     return out;
   }
 
+  /**
+   * إحصاءات المحتوى المحمَّل محليًا (المادة الفعّالة).
+   *
+   * أرقام الطلاب والأكواد والاشتراكات لم تعد هنا: مصدرها admin_stats() على
+   * السيرفر، لأن جداولها ممنوعة على العميل أصلًا. خلطُ المصدرين كان يعطي
+   * أرقامًا وهمية تبدو حقيقية — أسوأ من غياب الرقم.
+   */
   function stats() {
     const s = state;
     const published = (a) => a.filter((x) => x.published !== false).length;
-    const activeStudents = s.students.filter((x) => x.lastSeen !== 'قبل ٦ أيام').length;
     return {
       lessons: s.lessons.length, lessonsPub: published(s.lessons),
       questions: s.questions.length, questionsPub: published(s.questions),
       exams: s.exams.length, examsPub: published(s.exams),
-      videos: s.videos.length,
-      videoMb: Math.round(s.videos.reduce((a, v) => a + v.mb, 0) * 10) / 10,
-      students: s.students.length, activeStudents,
-      codes: s.batches.reduce((a, b) => a + b.qty, 0),
-      codesUsed: s.batches.reduce((a, b) => a + b.used, 0),
-      gaps: s.lessons.filter((l) => !l.video || questionsOf(l.id).length === 0),
+      gaps: s.lessons.filter((l) => questionsOf(l.id).length === 0),
     };
   }
 
@@ -445,9 +536,18 @@ window.Store = (function () {
 
   function reset() { signOut(); }
 
+  /**
+   * هل تحت المادة أي محتوى؟ يمنع حذفًا يجرف كورسات ودروسًا بـcascade.
+   *
+   * لا يقرأ books/questions لأنهما مصفَّيان بالمادة الفعّالة — فحصُ مادةٍ
+   * أخرى بهما يعيد "فارغة" دائمًا ويسمح بحذفها وهي مليئة. contentCounts
+   * تُبنى في loadAll من الصفوف كاملةً قبل التصفية.
+   */
+  const subjectHasContent = (id) => (state.contentCounts[id] || 0) > 0;
+
   return {
     get, set, subscribe, ROLES, can, signIn, signOut, resume, newId, SECTIONS,
-    unitOptionsFor, unitLabel,
+    unitOptionsFor, unitLabel, setActiveSubject, subjectHasContent, loadAll,
     upsert, remove, unitsOf, lessonsOf, questionsOf, lessonById,
     lessonPaths, stats, setTheme, reset,
   };

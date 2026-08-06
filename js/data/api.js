@@ -90,23 +90,67 @@ window.Api = (function () {
    * (join) يحدثان في الواجهة تمامًا كما كانت تعمل على SEED الوهمية —
    * هذا يبقي صفحات content.js وquestions.js شبه بلا تغيير.
    */
-  function from(table, { select = '*', order } = {}) {
+  function from(table, { select = '*', order, eq } = {}) {
     const q = new URLSearchParams({ select });
     if (order) q.set('order', order);
+    // eq: { id: '...' } ⇒ ?id=eq.<value>
+    if (eq) for (const [k, v] of Object.entries(eq)) q.set(k, `eq.${v}`);
     return request(`/rest/v1/${table}?${q}`);
   }
 
-  /** إدراج أو تحديث بمفتاح id — يعمل كتحديث لصفّ قائم أو إدراج لصفّ جديد. */
-  function upsert(table, row) {
-    return request(`/rest/v1/${table}?on_conflict=id`, {
+  /**
+   * معرّف المستخدم الحالي، مقروءًا من حمولة الـJWT.
+   *
+   * ضروري لا تجميلي: المدير يرى **كل** الملفات الشخصية (سياسة
+   * admin_read_all_profiles)، فقراءة profiles بلا مرشِّح ثم أخذ أول صفّ
+   * تعطيه هوية شخص آخر ودورَه. حدث ذلك فعليًا: أول مدير دخل ظهر باسم أستاذ
+   * وبصلاحياته لأن صفّه صادف أن يكون الأول.
+   *
+   * لا نتحقّق من التوقيع هنا — لا فائدة من ذلك في المتصفح، والسيرفر هو من
+   * يتحقّق. هذه قراءة للمعرّف فقط لبناء استعلام صحيح.
+   */
+  function userId() {
+    const t = session?.access_token;
+    if (!t) return null;
+    try {
+      const p = t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      return JSON.parse(decodeURIComponent(escape(atob(p)))).sub || null;
+    } catch { return null; }
+  }
+
+  /**
+   * إدراج أو تحديث بمفتاح id — يعمل كتحديث لصفّ قائم أو إدراج لصفّ جديد.
+   *
+   * ⚠️ RLS لا تُرجع خطأً عند منع تحديث: تُصفّي الصفوف فلا يتطابق شيء، ويعود
+   * PostgREST بنجاح وقائمة فارغة. بلا الفحص أدناه كانت اللوحة تقول «حُفظ»
+   * وتحدّث حالتها المحلية بينما القاعدة لم تتغيّر — ويظهر التراجع عند أول
+   * تحديث للصفحة. ظهر هذا فعليًا بعد حصر الأستاذ بموادّه: قبله كان كل طاقم
+   * يكتب كل شيء فلم تحدث الحالة أصلًا.
+   */
+  async function upsert(table, row) {
+    const out = await request(`/rest/v1/${table}?on_conflict=id`, {
       method: 'POST',
       body: row,
       headers: { Prefer: 'return=representation,resolution=merge-duplicates' },
     });
+    if (Array.isArray(out) && out.length === 0) {
+      throw new ApiError('rls_denied',
+        'لا تملك صلاحية التعديل على هذا العنصر. إن كنت أستاذًا فهو خارج موادّك.', 403);
+    }
+    return out;
   }
 
-  function remove(table, id) {
-    return request(`/rest/v1/${table}?id=eq.${id}`, { method: 'DELETE' });
+  /** يطلب تمثيل المحذوف لنفس السبب أعلاه: الحذف الممنوع يعود 204 صامتًا. */
+  async function remove(table, id) {
+    const out = await request(`/rest/v1/${table}?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=representation' },
+    });
+    if (Array.isArray(out) && out.length === 0) {
+      throw new ApiError('rls_denied',
+        'لا تملك صلاحية حذف هذا العنصر. إن كنت أستاذًا فهو خارج موادّك.', 403);
+    }
+    return out;
   }
 
   /** استبدال كامل لصفوف جدول وسيط (متعدد-لمتعدد) — يحذف القديم ثم يُدرج الجديد. */
@@ -115,6 +159,95 @@ window.Api = (function () {
     if (rows.length) {
       await request(`/rest/v1/${table}`, { method: 'POST', body: rows, headers: { Prefer: 'return=minimal' } });
     }
+  }
+
+  /**
+   * نداء Edge Function إدارية.
+   *
+   * ما يمرّ من هنا هو ما لا يجوز أن يمرّ من المتصفح مباشرةً: إنشاء الحسابات
+   * (يحتاج Auth Admin API) وتوليد الأكواد (يحتاج ACTIVATION_PEPPER). الدالة
+   * تفحص is_admin() بنفسها على السيرفر — إخفاء الزر هنا ليس حماية.
+   */
+  async function invoke(name, body) {
+    const res = await fetch(`${URL_BASE}/functions/v1/${name}`, {
+      method: 'POST',
+      headers: { apikey: ANON, ...(await authHeader()), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    }).catch(() => null);
+
+    if (!res) throw new ApiError('offline', 'تعذّر الاتصال بالخادم.', 0);
+    const data = await res.json().catch(() => null);
+    if (!res.ok || data?.ok === false) {
+      throw new ApiError(data?.code || 'fn_error',
+        data?.message || `فشل الطلب (${res.status}).`, res.status);
+    }
+    return data;
+  }
+
+  /** نداء دالة SQL (RPC) — للقراءات المجمَّعة التي لا يجوز فتح جداولها للعميل. */
+  async function rpc(fn, args = {}) {
+    return request(`/rest/v1/rpc/${fn}`, { method: 'POST', body: args });
+  }
+
+  // ---------------------------------------------------------------------------
+  // التخزين — دلو public-media العام (صور الأساتذة والبانرات)
+  //
+  // الرفع مباشرةً من المتصفح بتوكن المستخدم؛ سياسات storage تفرض أن يكون
+  // من الطاقم. لا Edge Function وسيطة: لا سرّ هنا ولا منطق يستحق سيرفرًا،
+  // ومرور الملف عبر دالة يعني تحميله كاملًا في ذاكرتها بلا فائدة.
+  // ---------------------------------------------------------------------------
+  const BUCKET = 'public-media';
+
+  /** الرابط العام الدائم لملف — يصلح للتخزين المؤقّت وللوضع دون إنترنت. */
+  const publicUrl = (path) =>
+    path ? `${URL_BASE}/storage/v1/object/public/${BUCKET}/${path}` : null;
+
+  /**
+   * يرفع ملفًا ويعيد مساره داخل الدلو (لا الرابط الكامل).
+   *
+   * نخزّن المسار لا الرابط: الرابط يحوي نطاق المشروع، فتغييره يومًا (نقل
+   * المشروع، نطاق مخصّص) يُبطل كل صفّ في القاعدة. المسار يبقى صالحًا.
+   *
+   * الاسم يحمل طابعًا زمنيًا: رفع صورة جديدة لنفس الأستاذ ينشئ ملفًا جديدًا
+   * بدل الكتابة فوق القديم، فلا يُظهر المتصفح الصورة القديمة من كاشه.
+   */
+  async function uploadImage(file, folder) {
+    if (!file) throw new ApiError('no_file', 'لم يُختَر ملف.', 400);
+    if (!/^image\/(png|jpeg|webp|avif)$/.test(file.type)) {
+      throw new ApiError('bad_type', 'الصيغ المقبولة: PNG أو JPEG أو WebP أو AVIF.', 400);
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      throw new ApiError('too_big', 'حجم الصورة يتجاوز ٥ ميغابايت.', 400);
+    }
+
+    const ext = ({ 'image/png': 'png', 'image/jpeg': 'jpg',
+                   'image/webp': 'webp', 'image/avif': 'avif' })[file.type];
+    const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+    const res = await fetch(`${URL_BASE}/storage/v1/object/${BUCKET}/${path}`, {
+      method: 'POST',
+      headers: { apikey: ANON, ...(await authHeader()), 'Content-Type': file.type },
+      body: file,
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new ApiError('upload_failed',
+        res.status === 403
+          ? 'لا تملك صلاحية رفع الصور.'
+          : `تعذّر رفع الصورة (${res.status}). ${t.slice(0, 120)}`,
+        res.status);
+    }
+    return path;
+  }
+
+  /** حذف صورة قديمة — فشلُه لا يُفشل العملية: الصفّ أهمّ من ملف يتيم. */
+  async function deleteImage(path) {
+    if (!path) return;
+    try {
+      await fetch(`${URL_BASE}/storage/v1/object/${BUCKET}/${path}`, {
+        method: 'DELETE', headers: { apikey: ANON, ...(await authHeader()) },
+      });
+    } catch { /* ملف يتيم بالدلو أهون من فشل حفظ البيانات */ }
   }
 
   // ---------------------------------------------------------------------------
@@ -140,8 +273,9 @@ window.Api = (function () {
 
   return {
     URL_BASE, ANON, ApiError,
-    isSignedIn, session: () => session, refresh,
-    request, from, upsert, remove, replaceJoin,
+    isSignedIn, userId, session: () => session, refresh,
+    request, from, upsert, remove, replaceJoin, invoke, rpc,
+    uploadImage, deleteImage, publicUrl,
     signInWithPassword, signOut,
   };
 })();
