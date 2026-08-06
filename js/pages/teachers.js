@@ -119,10 +119,12 @@ window.Pages = window.Pages || {};
       // --- الصورة ---
       let photoPath = t?.photo_path || null;
       let pickedFile = null;
-      const preview = h('div', { style: 'width:84px;height:84px;border-radius:50%;overflow:hidden;'
-        + 'background:var(--acc-soft);display:grid;place-items:center;flex:none' });
+      // المعاينة بنفس شكل العرض بالتطبيق: بطاقة عريضة ٣:٢ بلا قصّ. الدائرة
+      // السابقة كانت تُظهر الصورة مقصوصة فيوافق المدير على ما لن يراه الطالب.
+      const preview = h('div', { style: 'width:210px;aspect-ratio:3/2;border-radius:14px;overflow:hidden;'
+        + 'background:var(--acc-soft);display:grid;place-items:center;flex:none;border:1px solid var(--brd)' });
       const drawPreview = (src) => preview.replaceChildren(src
-        ? h('img', { src, alt: '', style: 'width:100%;height:100%;object-fit:cover' })
+        ? h('img', { src, alt: '', style: 'width:100%;height:100%;object-fit:contain' })
         : h('span', { style: 'color:var(--acc-tx);font-weight:700;font-size:26px' },
             (name.value || '؟')[0]));
       drawPreview(Api.publicUrl(photoPath));
@@ -155,7 +157,9 @@ window.Pages = window.Pages || {};
                 onclick: () => { photoPath = null; pickedFile = null; drawPreview(null); },
               }, 'إزالة'),
               h('div.help', { style: 'margin-top:6px' },
-                'مربّعة يُفضَّل · PNG أو JPEG أو WebP · حتى ٥ م.ب'),
+                'بطاقة الأستاذ كاملة — الاسم والمادة والخبرة مرسومة داخل الصورة. '
+                + 'نسبة ٣:٢ عريضة (مثلًا ١٢٠٠×٨٠٠) · PNG أو JPEG أو WebP · حتى ٥ م.ب. '
+                + 'التطبيق يعرضها كما هي بلا قصّ ولا نصّ فوقها.'),
               file)),
 
           C.field('الاسم', name),
