@@ -1,137 +1,170 @@
 /* =============================================================================
-   الطلاب — قائمة، تفاصيل، وفكّ ارتباط الجهاز
+   الطلاب — الاشتراكات والأجهزة وأدوات الدعم
+
+   كل شيء هنا عبر RPCs (admin_students / admin_student_detail): جداول
+   subscriptions و devices بلا أي منح للعميل منذ الهجرة 04، وهذه خاصية نحفظها
+   عمدًا — فتحُها للمدير يعني أن ثغرة XSS واحدة في اللوحة تُفرّغ قاعدة العملاء.
+   الدوال تُرجع المجمَّع والمحدود فقط، وتفحص is_admin() بنفسها.
+
+   البحث والترقيم على السيرفر لا في المتصفح: قائمة الطلاب تنمو بلا حدّ.
    ============================================================================= */
 window.Pages = window.Pages || {};
 
 (function () {
   const { h, ar } = UI;
 
+  const PAGE = 25;
+  const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString('ar', {
+    year: 'numeric', month: 'short', day: 'numeric' }) : '—');
+
+  /** «قبل ٣ أيام» أوضح من تاريخ مطلق حين يكون السؤال: هل ما زال يستعمله؟ */
+  function ago(iso) {
+    if (!iso) return 'لم يدخل بعد';
+    const d = Math.floor((Date.now() - Date.parse(iso)) / 86400000);
+    if (d <= 0) return 'اليوم';
+    if (d === 1) return 'أمس';
+    if (d < 30) return `قبل ${ar(d)} يومًا`;
+    if (d < 365) return `قبل ${ar(Math.floor(d / 30))} أشهر`;
+    return `قبل ${ar(Math.floor(d / 365))} سنة`;
+  }
+
   Pages.students = () => {
     const page = h('div.content');
     const wrap = h('div.wrap');
     page.appendChild(wrap);
 
-    let search = '';
-    let filter = 'all';   // all | nodevice | inactive
+    let rows = [], total = 0, offset = 0, search = '', loadErr = null, busy = false;
+    let timer = null;
+
+    async function load() {
+      busy = true;
+      try {
+        const r = await Api.rpc('admin_students',
+          { p_search: search || null, p_limit: PAGE, p_offset: offset });
+        rows = r.rows || []; total = r.total || 0; loadErr = null;
+      } catch (e) { loadErr = e.message || 'تعذّر تحميل الطلاب.'; }
+      busy = false;
+      draw();
+    }
 
     function draw() {
-      const s = Store.get();
-      let rows = s.students;
-      if (search) rows = rows.filter((x) => x.username.includes(search));
-      if (filter === 'nodevice') rows = rows.filter((x) => !x.device);
-      if (filter === 'inactive') rows = rows.filter((x) => x.lastSeen.includes('أيام'));
+      if (loadErr) { wrap.replaceChildren(C.card('الطلاب', h('div.badge.badge--err', loadErr))); return; }
 
-      const inp = C.input({ placeholder: 'ابحث باسم المستخدم…', value: search });
+      const inp = C.input({ placeholder: 'ابحث باسم المستخدم أو الاسم…', value: search });
       inp.addEventListener('input', () => {
-        search = inp.value.trim();
-        clearTimeout(inp._t); inp._t = setTimeout(draw, 250);
+        // تأخير قصير: بلا هذا كل ضغطة مفتاح استعلامٌ للسيرفر
+        clearTimeout(timer);
+        timer = setTimeout(() => { search = inp.value.trim(); offset = 0; load(); }, 300);
       });
 
-      const chip = (id, label) => h('button.btn.btn--sm' + (filter === id ? '.btn--primary' : '.btn--sec'),
-        { onclick: () => { filter = id; draw(); } }, label);
-
-      const noDevice = s.students.filter((x) => !x.device).length;
+      const pages = Math.max(1, Math.ceil(total / PAGE));
+      const cur = Math.floor(offset / PAGE) + 1;
 
       wrap.replaceChildren(
-        h('div.grid.grid--3.mb',
-          C.kpi('الطلاب', ar(s.students.length)),
-          C.kpi('بلا جهاز مرتبط', ar(noDevice),
-                noDevice ? 'لا يستطيعون الدخول' : 'الجميع يستطيع الدخول',
-                noDevice ? 'var(--err)' : undefined),
-          C.kpi('متوسط التقدّم',
-                ar(Math.round(s.students.reduce((a, x) => a + x.progress, 0) / (s.students.length || 1))) + '٪')),
+        h('div.row.mb', { style: 'gap:10px;flex-wrap:wrap' },
+          h('div.filter-w', inp),
+          h('span.faint.small', `${ar(total)} طالبًا`)),
 
-        h('div.row.row--wrap.mb',
-          h('div.grow', { style: 'min-width:220px' }, inp),
-          chip('all', 'الكل'),
-          chip('nodevice', `بلا جهاز (${ar(noDevice)})`),
-          chip('inactive', 'غير نشط')),
+        C.card('الطلاب',
+          C.table(['اسم المستخدم', 'الاسم', 'الاشتراك', 'الأجهزة', 'آخر دخول', 'التسجيل', ''],
+            rows, (s) => {
+              const sub = s.subscription;
+              const daysLeft = sub ? Math.ceil((Date.parse(sub.ends_at) - Date.now()) / 86400000) : 0;
+              return [
+                h('div', { style: 'font-weight:600' }, s.username || '—'),
+                s.name ? h('span.small', s.name) : h('span.faint', '—'),
+                sub
+                  ? h('span.badge.badge--' + (daysLeft <= 14 ? 'warn' : 'ok'), `${ar(daysLeft)} يومًا`)
+                  : h('span.badge.badge--mute', 'بلا اشتراك'),
+                h('span.num', ar(s.devices || 0)),
+                h('span.faint.small', ago(s.last_session)),
+                h('span.faint.small', fmtDate(s.created_at)),
+                C.actions(h('button.btn.btn--sec.btn--sm',
+                  { onclick: () => detail(s.id) }, 'تفاصيل')),
+              ];
+            }, busy ? 'جارٍ التحميل…' : 'لا طلاب مطابقون.'),
 
-        C.card(null,
-          C.table(['الطالب', 'الصف', 'الجهاز', 'التقدّم', 'التمارين', 'أفضل امتحان', 'آخر ظهور', ''],
-            rows, (x) => [
-              h('div',
-                h('div', { style: 'font-weight:600' }, x.username),
-                h('div.faint.small', `اشترك ${x.joined} · متبقٍ ${ar(x.daysLeft)} يومًا`)),
-              (SEED.grades.find((g) => g.id === x.grade) || {}).name,
-              x.device
-                ? h('div.small', x.device)
-                : h('span.badge.badge--err', 'غير مرتبط'),
-              h('div.row',
-                h('div.bar', { style: 'width:64px' }, h('i', { style: `width:${x.progress}%` })),
-                h('span.num.small', ar(x.progress) + '٪')),
-              h('div', h('span.num', ar(x.attempts)),
-                h('div.faint.small', `${ar(x.correct)}٪ صواب`)),
-              x.bestExam
-                ? h('span.badge.' + (x.bestExam >= 50 ? 'badge--ok' : 'badge--warn'), ar(x.bestExam) + '٪')
-                : h('span.faint.small', '—'),
-              h('span.faint.small', x.lastSeen),
-              C.actions(h('button.btn.btn--sec.btn--sm', { onclick: () => detail(x) }, 'تفاصيل')),
-            ], 'لا طلاب مطابقون.'),
-          h('span.badge.badge--acc', `${ar(rows.length)} طالب`)),
+          pages > 1 && h('div.row', { style: 'gap:8px' },
+            h('button.btn.btn--ghost.btn--sm', {
+              disabled: offset === 0,
+              onclick: () => { offset = Math.max(0, offset - PAGE); load(); },
+            }, 'السابق'),
+            h('span.faint.small', `${ar(cur)} من ${ar(pages)}`),
+            h('button.btn.btn--ghost.btn--sm', {
+              disabled: cur >= pages,
+              onclick: () => { offset += PAGE; load(); },
+            }, 'التالي'))),
       );
     }
 
-    // =========================================================================
-    function detail(x) {
-      const grade = (SEED.grades.find((g) => g.id === x.grade) || {}).name;
-      const batch = Store.get().batches.find((b) => b.id === x.batch);
+    async function detail(id) {
+      let d;
+      try { d = await Api.rpc('admin_student_detail', { p_user: id }); }
+      catch (e) { return C.toast(e.message || 'تعذّر جلب التفاصيل', 'err'); }
+
+      const body = h('div');
+      const refresh = async () => {
+        d = await Api.rpc('admin_student_detail', { p_user: id });
+        render();
+      };
+
+      const render = () => body.replaceChildren(
+        h('div.grid.grid--3.mb',
+          C.kpi('دروس أنهاها', ar(d.lessons_done || 0)),
+          C.kpi('أجهزة نشطة', ar((d.devices || []).filter((x) => !x.revoked).length)),
+          C.kpi('آخر دخول', ago(d.last_session))),
+
+        C.card('الاشتراكات',
+          C.table(['الحالة', 'من', 'إلى', ''], d.subscriptions || [], (s) => {
+            const live = s.status === 'active' && Date.parse(s.ends_at) > Date.now();
+            return [
+              h('span.badge.badge--' + (live ? 'ok' : 'mute'),
+                live ? 'فعّال' : (s.status === 'revoked' ? 'ملغى' : 'منتهٍ')),
+              h('span.faint.small', fmtDate(s.starts_at)),
+              h('span.faint.small', fmtDate(s.ends_at)),
+              C.actions(live && h('button.btn.btn--danger.btn--sm', {
+                onclick: () => C.confirmDialog('إلغاء الاشتراك',
+                  'سيفقد الطالب الوصول للمحتوى المدفوع فورًا، ويحتاج كودًا جديدًا. '
+                  + 'تُسجَّل العملية باسمك في سجلّ النشاط.',
+                  async () => {
+                    try {
+                      await Api.rpc('admin_revoke_subscription', { p_sub: s.id });
+                      C.toast('أُلغي الاشتراك'); await refresh(); load();
+                    } catch (e) { C.toast(e.message || 'تعذّر الإلغاء', 'err'); }
+                  }, 'إلغاء الاشتراك'),
+              }, 'إلغاء')),
+            ];
+          }, 'لا اشتراكات.')),
+
+        h('div.mt', C.card('الأجهزة',
+          C.table(['الجهاز', 'أول ظهور', 'آخر ظهور', 'الحالة', ''], d.devices || [], (x) => [
+            h('div.small', x.name || x.platform || 'جهاز'),
+            h('span.faint.small', fmtDate(x.first_seen)),
+            h('span.faint.small', ago(x.last_seen)),
+            x.revoked ? h('span.badge.badge--mute', 'مفكوك') : h('span.badge.badge--ok', 'مرتبط'),
+            C.actions(!x.revoked && h('button.btn.btn--sec.btn--sm', {
+              onclick: async () => {
+                try {
+                  await Api.rpc('admin_revoke_device', { p_device: x.id });
+                  C.toast('فُكّ الجهاز'); await refresh();
+                } catch (e) { C.toast(e.message || 'تعذّر الفكّ', 'err'); }
+              },
+            }, 'فكّ الارتباط')),
+          ], 'لا أجهزة.'),
+          h('span.help',
+            'الحماية الحقيقية بالجلسة الواحدة لا بعدد الأجهزة: أي دخول جديد يُبطل '
+            + 'السابق فورًا. الفكّ هنا للدعم — حين ينكسر هاتف الطالب مثلًا — لا للحماية.'))),
+      );
+      render();
 
       C.modal({
-        title: x.username,
-        body: h('div',
-          h('div.grid.grid--3.mb',
-            C.kpi('التقدّم', ar(x.progress) + '٪'),
-            C.kpi('التمارين', ar(x.attempts), `${ar(x.correct)}٪ صواب`),
-            C.kpi('أفضل امتحان', x.bestExam ? ar(x.bestExam) + '٪' : '—')),
-
-          C.card('الاشتراك', h('div',
-            h('div.row', { style: 'padding:6px 0' },
-              h('div.grow.small', 'الصف'), h('b', grade)),
-            h('div.row', { style: 'padding:6px 0;border-top:1px solid var(--brd)' },
-              h('div.grow.small', 'تاريخ الاشتراك'), h('span.mono.small', x.joined)),
-            h('div.row', { style: 'padding:6px 0;border-top:1px solid var(--brd)' },
-              h('div.grow.small', 'المتبقي'), h('b', `${ar(x.daysLeft)} يومًا`)),
-            h('div.row', { style: 'padding:6px 0;border-top:1px solid var(--brd)' },
-              h('div.grow.small', 'الدفعة'),
-              h('span.small', batch ? `${batch.label} — ${batch.distributor || ''}` : '—')))),
-
-          // --- الجهاز: أهم قسم في هذه النافذة -----------------------------
-          // بلا بريد ولا كلمة سر، هذا الزر هو مسار الاسترداد الوحيد للطالب
-          // الذي انكسر هاتفه. بدونه يبقى مقفلًا خارج اشتراكه المدفوع.
-          h('div.mt',
-            C.card('الجهاز المرتبط', h('div',
-              x.device
-                ? h('div',
-                    h('div.row.mb',
-                      h('div.grow',
-                        h('div', { style: 'font-weight:600' }, x.device),
-                        h('div.faint.small', `آخر ظهور: ${x.lastSeen}`)),
-                      h('span.badge.badge--ok', 'مرتبط')),
-                    h('div.help.mb',
-                      'فكّ الارتباط يسمح للطالب بالدخول من جهاز جديد بنفس الكود. '
-                      + 'استعمله حين ينكسر هاتفه أو يعيد ضبطه.'),
-                    h('button.btn.btn--danger', {
-                      onclick: () => C.confirmDialog('فكّ ارتباط الجهاز',
-                        `سيتمكّن «${x.username}» من الدخول بكوده على جهاز جديد، `
-                        + 'وسيخرج من الجهاز الحالي فورًا. متابعة؟',
-                        () => {
-                          Store.upsert('students', { id: x.id, device: null });
-                          C.toast('فُكّ ارتباط الجهاز'); draw();
-                          document.querySelector('.scrim')?.remove();
-                        }, 'فكّ الارتباط'),
-                    }, 'فكّ ارتباط الجهاز'))
-                : h('div',
-                    h('div.badge.badge--warn.mb', 'لا جهاز مرتبط'),
-                    h('div.help',
-                      'الطالب لم يدخل بعد، أو فُكّ ارتباط جهازه. سيرتبط الجهاز '
-                      + 'تلقائيًا عند أول دخول بالكود.'))))),
-        ),
-        actions: [{ label: 'إغلاق', onClick: (c) => c() }],
+        title: `الطالب: ${d.username || d.name || '—'}`,
+        wide: true, body,
+        actions: [{ label: 'إغلاق', kind: 'primary', onClick: (c) => c() }],
       });
     }
 
-    draw();
+    load();
     return page;
   };
 })();
