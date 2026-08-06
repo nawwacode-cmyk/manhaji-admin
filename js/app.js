@@ -9,28 +9,63 @@ window.App = (function () {
   // الأقسام (امتحانات مركَّبة، فيديو، أكواد، طلاب) لا تزال على بيانات وهمية
   // ولا علاقة لها بهذه المرحلة، فأُخفيت من القائمة بدل أن تبدو جاهزة وهي
   // ليست كذلك. صفحاتها موجودة كما هي بالكامل — أعد هذه الأسطر عند وصلها.
+  // الأقسام المعلَّقة (امتحانات/فيديوهات) ما زالت على بيانات وهمية، فتبقى
+  // مخفيّة حتى تُوصَل — صفحة تبدو جاهزة وهي ليست كذلك أسوأ من صفحة غائبة.
   const NAV = [
     { sec: 'الرئيسية' },
     { id: 'dashboard', label: 'لوحة المعلومات', ico: () => icon.grid(19) },
     { sec: 'المحتوى' },
+    { id: 'subjects',  label: 'المواد',      ico: () => icon.grid(19) },
     { id: 'content',   label: 'الدروس',      ico: () => icon.book(19) },
     { id: 'questions', label: 'بنك الأسئلة', ico: () => icon.help(19) },
     // { id: 'exams',     label: 'الامتحانات',    ico: () => icon.exam(19) },
     // { id: 'videos',    label: 'الفيديوهات',    ico: () => icon.video(19) },
-    // { sec: 'الإدارة' },
-    // { id: 'codes',     label: 'أكواد التفعيل', ico: () => icon.key(19) },
-    // { id: 'students',  label: 'الطلاب',        ico: () => icon.users(19) },
+    { sec: 'الواجهة' },
+    { id: 'teachers',  label: 'الأساتذة',    ico: () => icon.users(19) },
+    { id: 'banners',   label: 'البانرات',    ico: () => icon.video(19) },
+    { sec: 'الإدارة' },
+    { id: 'students',  label: 'الطلاب',        ico: () => icon.users(19) },
+    { id: 'codes',     label: 'أكواد التفعيل', ico: () => icon.key(19) },
+    { id: 'staff',     label: 'الطاقم',        ico: () => icon.user(19) },
+    { id: 'audit',     label: 'سجلّ النشاط',   ico: () => icon.chart(19) },
   ];
 
   const TITLES = {
     dashboard: ['لوحة المعلومات', 'نظرة سريعة على المحتوى والطلاب'],
+    subjects:  ['المواد', 'الجذر الذي يعلَّق تحته كل المنهاج'],
+    teachers:  ['الأساتذة', 'الصور والسِّيَر التي يراها الطالب في «الرئيسية»'],
+    banners:   ['البانرات', 'شرائح «الرئيسية» — بصور وجدولة تلقائية'],
     content:   ['الدروس', 'الكتب والوحدات والدروس'],
     questions: ['بنك الأسئلة', 'كل الأسئلة، مرتبطة بدروسها ومواضيعها'],
     exams:     ['الامتحانات', 'تجريبية ووزارية، تُركَّب من بنك الأسئلة'],
     videos:    ['الفيديوهات', 'المكتبة والرفع والربط بالدروس'],
     codes:     ['أكواد التفعيل', 'توليد الدفعات وتصديرها للموزّعين'],
-    students:  ['الطلاب', 'الاشتراكات والتقدّم وفكّ ارتباط الأجهزة'],
+    students:  ['الطلاب', 'الاشتراكات والأجهزة وأدوات الدعم'],
+    staff:     ['الطاقم', 'حسابات الأساتذة والمديرين وصلاحياتهم'],
+    audit:     ['سجلّ النشاط', 'من فعل ماذا ومتى — غير قابل للتعديل'],
   };
+
+  /**
+   * مبدّل المادة الفعّالة — كل صفحات المحتوى تتبعه.
+   *
+   * يُخفى بصفحة «المواد» نفسها (تعرض كل المواد أصلًا) وبصفحات الإدارة التي
+   * لا علاقة لها بمادة بعينها، فلا يوحي بتصفية غير موجودة.
+   */
+  function subjectSwitcher() {
+    const s = Store.get();
+    if (!['dashboard', 'content', 'questions', 'exams', 'videos'].includes(current)) return null;
+    if (s.subjects.length < 1) return null;
+
+    const sel = C.select(s.subjects.map((x) => [x.id, x.name]), s.subjectId,
+      { style: 'min-width:170px', title: 'المادة الفعّالة' });
+    sel.addEventListener('change', async () => {
+      sel.disabled = true;
+      await Store.setActiveSubject(sel.value);
+      render();
+    });
+    return h('label.row', { style: 'gap:8px;font-size:13px;font-weight:600;color:var(--txm)' },
+      'المادة', sel);
+  }
 
   let current = 'dashboard';
   let params = {};
@@ -132,7 +167,7 @@ window.App = (function () {
     const [title, sub] = TITLES[current] || ['', ''];
     const page = (Pages[current] || Pages.dashboard)(params);
 
-    main.replaceChildren(C.pageHead(title, sub, themeToggle()), page);
+    main.replaceChildren(C.pageHead(title, sub, subjectSwitcher(), themeToggle()), page);
     drawRail();
   }
 
