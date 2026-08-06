@@ -1,146 +1,206 @@
 /* =============================================================================
    أكواد التفعيل — توليد دفعات وتصدير CSV للموزّعين
+
+   ⚠️ عقد جوهري: الأكواد الصريحة تصل من السيرفر **مرة واحدة** في استجابة
+   التوليد، ولا تُخزَّن في أي مكان — القاعدة تعرف sha256(code+pepper) فقط.
+   من أغلق النافذة قبل التنزيل فقد الأكواد إلى الأبد، ولذلك يُنزَّل الملف
+   تلقائيًا فور التوليد ولا نكتفي بزرّ قد لا يُضغط.
+
+   وهذا مقصود لا نقص: يعني أن تسريب قاعدة البيانات لا يعطي أحدًا كودًا صالحًا.
    ============================================================================= */
 window.Pages = window.Pages || {};
 
 (function () {
   const { h, ar } = UI;
 
-  // أبجدية بلا أحرف ملتبسة: لا 0/O ولا 1/I/L ولا 5/S.
-  // السبب عملي بحت — هذه الأكواد تُطبع على ورق ويُدخلها طالب مستعجل.
-  const ALPHA = 'ACDEFGHJKMNPQRTUVWXY2346789';
-  const rand = (n) => Array.from({ length: n }, () =>
-    ALPHA[Math.floor(Math.random() * ALPHA.length)]).join('');
-
-  const prefixOf = (grade) => (grade === 'g12' ? 'F12' : 'FR9');
+  const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString('ar', {
+    year: 'numeric', month: 'short', day: 'numeric' }) : '—');
 
   Pages.codes = () => {
     const page = h('div.content');
     const wrap = h('div.wrap');
     page.appendChild(wrap);
 
+    let batches = [], packages = [], loadErr = null;
+
+    async function load() {
+      try {
+        const [b, p] = await Promise.all([
+          Api.invoke('admin-codes', { action: 'batches' }),
+          Api.invoke('admin-codes', { action: 'packages' }),
+        ]);
+        batches = b.batches || []; packages = p.packages || []; loadErr = null;
+      } catch (e) { loadErr = e.message || 'تعذّر تحميل الأكواد.'; }
+      draw();
+    }
+
     function draw() {
-      const s = Store.get();
-      const total = s.batches.reduce((a, b) => a + b.qty, 0);
-      const used = s.batches.reduce((a, b) => a + b.used, 0);
+      if (loadErr) { wrap.replaceChildren(C.card('الأكواد', h('div.badge.badge--err', loadErr))); return; }
+      const sum = (k) => batches.reduce((a, b) => a + (b[k] || 0), 0);
+      const total = sum('redeemed') + sum('available') + sum('revoked');
 
       wrap.replaceChildren(
-        h('div.grid.grid--3.mb',
+        h('div.grid.grid--4.mb',
           C.kpi('أكواد مولَّدة', ar(total)),
-          C.kpi('مستعمَلة', ar(used), `${ar(total - used)} متاح`),
-          C.kpi('الدفعات', ar(s.batches.length))),
+          C.kpi('مستهلَكة', ar(sum('redeemed'))),
+          C.kpi('متاحة للبيع', ar(sum('available'))),
+          C.kpi('مُبطَلة', ar(sum('revoked')))),
 
-        C.card('دفعات الأكواد',
-          C.table(['الدفعة', 'الموزّع', 'الصف', 'العدد', 'المستعمَل', 'المدة', 'التاريخ', ''],
-            s.batches, (b) => [
-              h('div', { style: 'font-weight:600' }, b.label),
-              h('div', b.distributor || '—',
-                b.phone && h('div.faint.small.mono', b.phone)),
-              (SEED.grades.find((g) => g.id === b.grade) || {}).name || 'الكل',
+        C.card('الدفعات',
+          C.table(['الدفعة', 'الموزّع', 'العدد', 'مستهلَك', 'متاح', 'التاريخ', ''],
+            batches, (b) => [
+              h('div',
+                h('div', { style: 'font-weight:600' }, b.label),
+                b.notes && h('div.faint.small', b.notes)),
+              b.distributor_name
+                ? h('div',
+                    h('div.small', b.distributor_name),
+                    b.distributor_phone && h('div.faint.small.mono',
+                      { style: 'direction:ltr;unicode-bidi:isolate' }, b.distributor_phone))
+                : h('span.faint', '—'),
               h('span.num', ar(b.qty)),
-              h('div.row',
-                h('div.bar', { style: 'width:70px' },
-                  h('i', { style: `width:${Math.round((b.used / b.qty) * 100)}%` })),
-                h('span.num.small', ar(b.used))),
-              `${ar(b.days)} يوم`,
-              h('span.faint.small.mono', b.created),
+              h('span.num', ar(b.redeemed)),
+              h('span.num' + (b.available === 0 ? '.faint' : ''), ar(b.available)),
+              h('span.faint.small', fmtDate(b.created_at)),
               C.actions(
-                h('button.btn.btn--sec.btn--sm', { onclick: () => exportCsv(b) }, 'تصدير CSV'),
-                h('button.btn.btn--danger.btn--sm', {
-                  onclick: () => C.confirmDialog('حذف الدفعة',
-                    `ستُحذف «${b.label}» و${ar(b.qty)} كودًا معها. الأكواد المستعملة `
-                    + 'تفقد ارتباطها بالدفعة. لا يمكن التراجع.',
-                    () => { Store.remove('batches', b.id); C.toast('حُذفت الدفعة'); draw(); }, 'حذف'),
-                }, 'حذف')),
-            ], 'لا دفعات بعد. ولّد دفعتك الأولى لتبيعها عبر موزّع.'),
-          h('button.btn.btn--primary.btn--sm', { onclick: generate }, '+ توليد دفعة')),
+                b.available > 0 && h('button.btn.btn--danger.btn--sm', {
+                  onclick: () => C.confirmDialog('إبطال المتاح من الدفعة',
+                    `سيُبطَل ${ar(b.available)} كودًا لم يُستهلك بعد، فلا يعود أي منها يعمل. `
+                    + `الأكواد المستهلَكة (${ar(b.redeemed)}) لا تُمسّ — إبطالها يقطع اشتراكات مدفوعة.`,
+                    async () => {
+                      try {
+                        const r = await Api.invoke('admin-codes',
+                          { action: 'revoke_batch', batch_id: b.id });
+                        C.toast(`أُبطل ${ar(r.revoked)} كودًا`); load();
+                      } catch (e) { C.toast(e.message || 'تعذّر الإبطال', 'err'); }
+                    }, 'إبطال'),
+                }, 'إبطال المتاح')),
+            ], 'لا دفعات بعد. ولّد أول دفعة لتبيعها عبر موزّع.'),
+          h('button.btn.btn--primary.btn--sm', { onclick: () => generate() }, '+ توليد دفعة')),
+
+        h('div.mt', C.card('الباقات المتاحة',
+          C.table(['الرمز', 'الباقة', 'ما تفتحه', 'الحالة'], packages, (p) => [
+            h('span.mono.small', p.code),
+            h('div', { style: 'font-weight:600' }, p.title),
+            h('div.faint.small', (p.grants || []).join(' + ') || '—'),
+            p.is_active ? h('span.badge.badge--ok', 'فعّالة') : h('span.badge.badge--mute', 'معطّلة'),
+          ], 'لا باقات.'))),
 
         h('div.help.mt',
-          'الأكواد تُخزَّن في قاعدة البيانات **مجزَّأة (hashed)** لا بنصّها الصريح — '
-          + 'تسريب قاعدة البيانات لا يعطي كودًا صالحًا واحدًا. لذلك ملف CSV الذي '
-          + 'تصدّره هنا هو النسخة الوحيدة من الأكواد: سلّمه للموزّع ثم احذفه.'),
+          'الأكواد تُخزَّن مجزَّأة (hashed) لا بنصّها الصريح — تسريب قاعدة البيانات '
+          + 'لا يعطي كودًا صالحًا واحدًا. لذلك ملف CSV الذي يُنزَّل عند التوليد هو '
+          + 'النسخة الوحيدة: سلّمه للموزّع ثم احذفه من جهازك.'),
       );
     }
 
     // =========================================================================
     function generate() {
-      const fLabel = C.input({ placeholder: 'مكتبة النور — أيلول ٢٠٢٦' });
-      const fDist  = C.input({ placeholder: 'أبو أحمد' });
-      const fPhone = C.input({ placeholder: '0933000000', dir: 'ltr' });
-      const fQty   = C.input({ type: 'number', value: 50, min: 1, max: 5000 });
-      const fGrade = C.select(SEED.grades.map((g) => [g.id, g.name]), 'g9');
-      const fDays  = C.input({ type: 'number', value: 365, min: 30 });
+      const active = packages.filter((p) => p.is_active);
+      if (!active.length) {
+        return C.modal({ title: 'لا باقات فعّالة',
+          body: h('div', 'الكود يفتح باقة، ولا توجد باقة فعّالة الآن. فعّل باقة أولًا.'),
+          actions: [{ label: 'حسنًا', kind: 'primary', onClick: (c) => c() }] });
+      }
+
+      const qty   = C.input({ type: 'number', value: 50, min: 1, max: 2000 });
+      const pkgS  = C.select(active.map((p) => [p.code, `${p.title} (${p.code})`]), active[0].code);
+      const label = C.input({ placeholder: 'مكتبة النور — آب ٢٠٢٦' });
+      const dist  = C.input({ placeholder: 'أبو أحمد' });
+      const phone = C.input({ dir: 'ltr', placeholder: '09xxxxxxxx' });
+      const days  = C.input({ type: 'number', value: 365, min: 1, max: 3650 });
+      const notes = C.input({ placeholder: 'ملاحظة داخلية (اختياري)' });
+
+      const scope = h('div.help');
+      const drawScope = () => {
+        const p = active.find((x) => x.code === pkgS.value);
+        scope.textContent = 'يفتح: ' + ((p?.grants || []).join(' + ') || '—');
+      };
+      pkgS.addEventListener('change', drawScope); drawScope();
+
+      const err = h('div');
+      const say = (m, cls) => err.replaceChildren(
+        h('div.badge.badge--' + cls, { style: 'margin-bottom:12px' }, m));
 
       C.modal({
         title: 'توليد دفعة أكواد',
         body: h('div',
-          C.field('اسم الدفعة', fLabel, 'يظهر لك فقط — للتمييز بين الموزّعين'),
+          err,
+          h('div.badge.badge--warn', { style: 'margin-bottom:14px' },
+            'الأكواد تظهر مرة واحدة فقط ويُنزَّل ملفها تلقائيًا. لا يمكن استعادتها لاحقًا.'),
+          C.field('الباقة', pkgS), scope,
+          C.field('العدد', qty),
+          C.field('مدّة الاشتراك (أيام)', days),
+          C.field('اسم الدفعة', label, 'يظهر بالقائمة وبملف الموزّع.'),
           h('div.grid.grid--2',
-            C.field('اسم الموزّع', fDist),
-            C.field('هاتف الموزّع', fPhone)),
-          h('div.grid.grid--3',
-            C.field('عدد الأكواد', fQty),
-            C.field('الصف', fGrade),
-            C.field('مدة الاشتراك (يوم)', fDays)),
-          h('div.help',
-            'الكود يفتح على جهاز واحد. الأحرف الملتبسة (0/O و1/I) مستبعدة من '
-            + 'الأبجدية أصلًا حتى لا يخطئ الطالب في قراءتها من البطاقة.')),
+            C.field('الموزّع', dist),
+            C.field('هاتفه', phone)),
+          C.field('ملاحظات', notes),
+        ),
         actions: [
           { label: 'إلغاء', onClick: (c) => c() },
-          { label: 'توليد وتصدير', kind: 'primary', onClick: (c) => {
-              const qty = +fQty.value;
-              if (!fLabel.value.trim()) return C.toast('اسم الدفعة مطلوب', 'err');
-              if (!qty || qty < 1 || qty > 5000) return C.toast('العدد بين ١ و ٥٠٠٠', 'err');
+          { label: 'ولّد ونزّل', kind: 'primary', onClick: async (close) => {
+            const n = Number(qty.value);
+            if (!Number.isInteger(n) || n < 1 || n > 2000) return say('العدد بين ١ و٢٠٠٠.', 'err');
+            const d = Number(days.value);
+            if (!Number.isInteger(d) || d < 1 || d > 3650) return say('المدّة بين يوم و٣٦٥٠ يومًا.', 'err');
 
-              const batch = {
-                id: 'b' + Date.now(), label: fLabel.value.trim(),
-                distributor: fDist.value.trim(), phone: fPhone.value.trim(),
-                qty, used: 0, grade: fGrade.value, days: +fDays.value || 365,
-                created: new Date().toISOString().slice(0, 10),
-              };
-              Store.upsert('batches', batch);
-              c();
-              exportCsv(batch, true);
-              C.toast(`وُلّد ${ar(qty)} كود`);
-              draw();
-            } },
+            say('جارٍ التوليد… لا تغلق النافذة.', 'warn');
+            try {
+              const res = await Api.invoke('admin-codes', {
+                action: 'generate', qty: n, package: pkgS.value, days: d,
+                label: label.value.trim(), distributor: dist.value.trim(),
+                phone: phone.value.trim(), notes: notes.value.trim(),
+              });
+
+              // التنزيل أولًا قبل أي رسم: هذه النسخة الوحيدة، وأي خطأ بعدها
+              // يعني ضياعها. C.download يضيف BOM ليقرأ Excel العربية صحيحة.
+              const scopeTxt = (res.package.grants || []).join(' + ');
+              const csv = 'code,package,scope,days,batch\n'
+                + res.codes.map((c) =>
+                    `${c},"${res.package.title}","${scopeTxt}",${res.days},"${res.batch.label}"`
+                  ).join('\n') + '\n';
+              const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+              const file = `codes-${res.package.code}-${stamp}.csv`;
+              C.download(file, csv);
+
+              close();
+              showCodes(res, csv, file);
+              load();
+            } catch (e) { say(e.message || 'تعذّر التوليد.', 'err'); }
+          } },
         ],
       });
     }
 
-    /**
-     * تصدير الأكواد. في النسخة الحقيقية تُولَّد على السيرفر وتُخزَّن تجزئتها
-     * فقط؛ هنا نولّدها في المتصفح لأن اللوحة ما زالت بلا Supabase.
-     */
-    function exportCsv(batch, isNew) {
-      const gradeName = (SEED.grades.find((g) => g.id === batch.grade) || {}).name || '';
-      const p = prefixOf(batch.grade);
-      const seen = new Set();
-      const codes = [];
-      while (codes.length < batch.qty) {
-        const code = `${p}-${rand(4)}-${rand(4)}`;
-        if (seen.has(code)) continue;
-        seen.add(code); codes.push(code);
-      }
-      const rows = ['الكود,الصف,المدة بالأيام,الدفعة,الموزّع',
-        ...codes.map((c) => `${c},${gradeName},${batch.days},"${batch.label}","${batch.distributor || ''}"`)];
-      C.download(`codes-${batch.id}.csv`, rows.join('\n'));
+    /** يعرض الأكواد بعد التنزيل التلقائي — لمن يريد النسخ اليدوي أو تنزيلًا ثانيًا. */
+    function showCodes(res, csv, file) {
+      const area = C.textarea({ rows: 10, readonly: true,
+        style: 'font-family:var(--mono);direction:ltr;text-align:left' });
+      area.value = res.codes.join('\n');
 
-      if (isNew) {
-        C.modal({
-          title: 'احفظ ملف الأكواد الآن',
-          body: h('div',
-            h('div.badge.badge--warn', { style: 'margin-bottom:12px' }, 'تنبيه مهم'),
-            h('p', 'نُزّل ملف CSV يحتوي الأكواد الصريحة. هذه ',
-              h('b', 'النسخة الوحيدة'), ' — قاعدة البيانات تخزّن تجزئتها فقط ولا يمكن '
-              + 'استعادتها منها.'),
-            h('p.muted.small', 'سلّم الملف للموزّع، ثم احذفه من جهازك بعد التسليم.')),
-          actions: [{ label: 'فهمت', kind: 'primary', onClick: (c) => c() }],
-        });
-      }
+      C.modal({
+        title: `وُلّد ${ar(res.codes.length)} كودًا`,
+        wide: true,
+        body: h('div',
+          h('div.badge.badge--ok', { style: 'margin-bottom:12px' },
+            'نُزِّل الملف تلقائيًا. هذه النسخة الوحيدة — احفظها ثم احذفها بعد التسليم.'),
+          h('div.muted.small', { style: 'margin-bottom:12px' },
+            `الباقة: ${res.package.title} · تفتح: ${(res.package.grants || []).join(' + ')} · `
+            + `المدّة: ${ar(res.days)} يومًا · الدفعة: ${res.batch.label}`),
+          area),
+        actions: [
+          { label: 'تنزيل مرة أخرى', onClick: () => C.download(file, csv) },
+          { label: 'نسخ الكل', onClick: () => {
+            area.select();
+            navigator.clipboard?.writeText(res.codes.join('\n')).then(
+              () => C.toast('نُسخت'), () => C.toast('انسخها يدويًا', 'err'));
+          } },
+          { label: 'حفظتها', kind: 'primary', onClick: (c) => c() },
+        ],
+      });
     }
 
-    draw();
+    load();
     return page;
   };
 })();
