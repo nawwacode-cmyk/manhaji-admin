@@ -188,6 +188,16 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
   ok('Api.userId يقرأ sub من التوكن', /function userId\(\)/.test(apiSrc) && /\.sub/.test(apiSrc));
   ok('from() يدعم المرشِّح eq', /eq\.\$\{v\}|`eq\.\$\{v\}`/.test(apiSrc) || /eq\.\$/.test(apiSrc));
 
+  /* الترقيم: PostgREST يقصّ عند db-max-rows (١٠٠٠) بلا إشارة خطأ. الأثر هنا
+     أخطر منه عند الطالب — محرِّرٌ يرى سؤالًا بلا خيارات فيضيفها من جديد. */
+  ok('from() تُرقّم الصفحات بترويسة Range',
+     /Range: `\$\{offset\}-\$\{offset \+ PAGE - 1\}`/.test(apiSrc));
+  ok('سعة الصفحة تُتعلَّم لا تُفترض', /if \(full === null\) full = page\.length;/.test(apiSrc)
+     && /if \(page\.length < full\) break;/.test(apiSrc));
+  ok('الترتيب يُذيَّل بمفتاح فريد', /order \? `\$\{order\},\$\{pageKey\}` : pageKey/.test(apiSrc));
+  ok('حارس ضدّ حلقة لا تنتهي إن تُجوهلت Range',
+     /head === prevHead/.test(apiSrc) && /pages >= 200/.test(apiSrc));
+
   // اختبار وظيفي لمنطق الاختيار نفسه: بمعرّف محدَّد لا يُختار الأول
   const fakeRows = [
     { id: 'other', full_name: 'أستاذ', role: 'teacher' },

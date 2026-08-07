@@ -84,18 +84,55 @@ window.Api = (function () {
     return data;
   }
 
+  /* ---------------------------------------------------------------------------
+     PostgREST يقصّ كل استجابة عند `db-max-rows` (١٠٠٠) بلا أي إشارة خطأ. الأثر
+     هنا أخطر منه في تطبيق الطالب: جدول question_options تجاوز الحدّ فعلًا
+     (١٣٠١ صفًّا)، فكان المحرِّر يرى سؤالًا **بلا خيارات** ويظنّها ناقصة
+     فيضيفها من جديد — أي تكرارٌ في البيانات سببه عرضٌ ناقص.
+
+     السعة تُتعلَّم من أول صفحة لا تُفترض، فلو خُفِّض الحدّ لاحقًا بقي صحيحًا.
+  --------------------------------------------------------------------------- */
+  const PAGE = 1000;
+
   /**
-   * قراءة جدول عبر PostgREST — تجلب كامل الجدول (بحسب ما تسمح به RLS).
-   * حجم المحتوى صغير (عشرات الوحدات، مئات الأسئلة)، فالتصفية والربط
-   * (join) يحدثان في الواجهة تمامًا كما كانت تعمل على SEED الوهمية —
-   * هذا يبقي صفحات content.js وquestions.js شبه بلا تغيير.
+   * قراءة جدول عبر PostgREST — تجلب كامل الجدول (بحسب ما تسمح به RLS)،
+   * مُرقَّمةً على صفحات. التصفية والربط (join) يحدثان في الواجهة كما كانا.
    */
-  function from(table, { select = '*', order, eq } = {}) {
+  async function from(table, { select = '*', order, eq, pageKey = 'id' } = {}) {
     const q = new URLSearchParams({ select });
-    if (order) q.set('order', order);
     // eq: { id: '...' } ⇒ ?id=eq.<value>
     if (eq) for (const [k, v] of Object.entries(eq)) q.set(k, `eq.${v}`);
-    return request(`/rest/v1/${table}?${q}`);
+    /* ترتيب فريد شرطُ صحّة للترقيم: `sort_order` غير فريد، والخادم حرٌّ في
+       ترتيب المتساويات بين صفحة وأخرى — فيتكرّر صفّ ويسقط آخر بلا خطأ ظاهر. */
+    q.set('order', order ? `${order},${pageKey}` : pageKey);
+
+    const out = [];
+    let full = null, prevHead = null;
+    for (let offset = 0, pages = 0; ; pages++) {
+      const page = await request(`/rest/v1/${table}?${q}`, {
+        headers: { 'Range-Unit': 'items', Range: `${offset}-${offset + PAGE - 1}` },
+      });
+      if (!Array.isArray(page)) return page;
+
+      // حارس ضدّ حلقة لا تنتهي لو تجاهل وسيطٌ ترويسة Range فأعاد الصفحة نفسها
+      const head = page.length ? JSON.stringify(page[0]) : null;
+      if (head !== null && head === prevHead) {
+        console.error(`الخادم يتجاهل ترويسة Range على ${table} — قد تكون النتيجة ناقصة`);
+        break;
+      }
+      prevHead = head;
+
+      out.push(...page);
+      if (!page.length) break;
+      if (full === null) full = page.length;
+      if (page.length < full) break;
+      offset += page.length;
+      if (pages >= 200) {
+        console.error(`ترقيم ${table} تجاوز الحدّ المعقول — توقّفنا عند ${out.length} صفًّا`);
+        break;
+      }
+    }
+    return out;
   }
 
   /**
