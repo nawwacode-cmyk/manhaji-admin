@@ -149,6 +149,64 @@ window.Pages = window.Pages || {};
         }
       }
 
+      /* --- فيديو الدرس ---------------------------------------------------
+         حالتان فقط: مربوط أو لا. لا نجلب المكتبة كاملة هنا — المحرِّر في
+         سياق درسٍ بعينه، وقائمة بعشرات الفيديوهات تُبطئ الفتح وتشتّت عن
+         السؤال الوحيد: هل لهذا الدرس فيديو؟ */
+      function videoRow() {
+        const box = h('div');
+        const refresh = async () => {
+          // نقرأ من القاعدة لا من الحالة المحلّية: الرفع يكتب `video_id`
+          // مباشرةً، والحالة هنا قد تكون أقدم منه.
+          let vid = null;
+          try {
+            const [row] = await Api.from('lessons',
+              { select: 'video_id', id: `eq.${l.id}` });
+            if (row?.video_id) {
+              const [v] = await Api.from('videos',
+                { select: 'id,title,duration_s,size_bytes,quality', id: `eq.${row.video_id}` });
+              vid = v || null;
+            }
+          } catch { /* العرض أدناه يتصرّف كأنه بلا فيديو */ }
+          render(vid);
+        };
+
+        const render = (v) => box.replaceChildren(
+          v
+            ? h('div.row', { style: 'gap:10px;flex-wrap:wrap;align-items:center' },
+                h('span.badge.badge--ok', 'مربوط'),
+                h('div.grow', h('div.small', { style: 'font-weight:600' }, v.title),
+                  h('div.faint.small',
+                    `${v.quality} · ${v.duration_s
+                      ? Math.floor(v.duration_s / 60) + ':' + String(v.duration_s % 60).padStart(2, '0')
+                      : '—'} · ${ar(Math.round((v.size_bytes || 0) / 1048576))} م.ب`)),
+                h('button.btn.btn--ghost.btn--sm', {
+                  onclick: () => C.confirmDialog('فكّ الفيديو',
+                    'يُفصل الفيديو عن هذا الدرس. الملفّ يبقى في المكتبة ويمكن ربطه بدرس آخر.',
+                    async () => {
+                      try {
+                        await Api.update('lessons', l.id, { video_id: null });
+                        C.toast('فُكّ الفيديو'); refresh();
+                      } catch (e) { C.toast(e.message || 'تعذّر الفكّ', 'err'); }
+                    }, 'فكّ'),
+                }, 'فكّ'),
+                h('button.btn.btn--sec.btn--sm', {
+                  onclick: () => C.videoUploader({
+                    lessonId: l.id, lessonTitle: l.title, onDone: refresh }),
+                }, 'استبدال'))
+            : h('div.row', { style: 'gap:10px;align-items:center' },
+                h('span.badge.badge--warn', 'بلا فيديو'),
+                h('button.btn.btn--primary.btn--sm', {
+                  onclick: () => C.videoUploader({
+                    lessonId: l.id, lessonTitle: l.title, onDone: refresh }),
+                }, '⬆ رفع فيديو لهذا الدرس')),
+        );
+
+        render(null);   // عرضٌ فوري ثم تصحيحه بما في القاعدة
+        refresh();
+        return box;
+      }
+
       const qBox = h('div');
       drawAttached();
 
@@ -273,6 +331,12 @@ window.Pages = window.Pages || {};
             h('div.row', { style: 'gap:18px;margin-bottom:14px' },
               C.checkbox('درس مجاني (معاينة قبل الاشتراك)', free, (v) => { free = v; }),
               C.checkbox('منشور للطلاب', published, (v) => { published = v; })),
+
+            /* فيديو الدرس هنا لا في صفحة منفصلة: المحرِّر يصوّر الدرس ويكتب
+               نصّه في جلسة واحدة، فإرساله إلى صفحة أخرى ليربط الفيديو خطوةٌ
+               تُنسى — والنتيجة درسٌ منشور بلا فيديو لا ينتبه له أحد. */
+            C.field('فيديو الدرس', videoRow(),
+              'يُرفع مباشرةً إلى التخزين ويُربط بهذا الدرس تلقائيًّا.'),
 
             C.field('أسئلة هذا الدرس', h('div',
               qBox,

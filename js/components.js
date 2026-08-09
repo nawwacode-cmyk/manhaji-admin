@@ -126,6 +126,156 @@ window.C = (function () {
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
 
+  /* ---------------------------------------------------------------------------
+     رفع فيديو — مكوّن مشترك بين «الفيديوهات» و«تحرير الدرس»
+
+     مشترك عمدًا لا مكرَّر: منطق الرفع دقيق (ترتيب التوقيع والرفع والتسجيل،
+     وإلغاء الطلب، وقراءة المدّة)، ونسختان منه تنحرفان عند أوّل تعديل يُنسى
+     في إحداهما.
+
+     الملفّ **لا يمرّ عبر خوادمنا**: نطلب رابط PUT موقّعًا ثم يرفع المتصفّح
+     إلى R2 مباشرةً — حدّ طلب Edge Function بضعة ميغابايت والدرس مئات.
+
+     وبـXMLHttpRequest لا fetch: الأخيرة لا تعطي تقدّم رفع، والتقدّم ليس زينة
+     — رفع ٦٠٠ م.ب على شبكة سورية دقائق، وبلا مؤشّر يظنّ المحرِّر أن التطبيق
+     تعلّق فيغلق النافذة في منتصفه.
+  --------------------------------------------------------------------------- */
+  function videoUploader({ lessonId = null, lessonTitle = '', onDone } = {}) {
+    const fmtDur = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '—');
+    const mb = (b) => Math.round((b || 0) / 1048576 * 10) / 10;
+
+    const fTitle = input({ placeholder: lessonTitle || 'مثال: الوحدة ١ — التحيات' });
+    if (lessonTitle) fTitle.value = lessonTitle;
+    // 1080p افتراضية: الدروس نصّية بصريًّا (قواعد وجداول)، والنصّ أوّل ما
+    // ينهار عند خفض الدقّة. والنقل من R2 مجّاني فالتوفير بلا مقابل.
+    const fQuality = select(
+      [['1080p', '1080p — موصى بها للنصّ'], ['720p', '720p'], ['480p', '480p'],
+       ['360p', '360p'], ['slides', 'شرائح + صوت']], '1080p');
+
+    const info = h('div');
+    const progress = h('div');
+    const err = h('div.badge.badge--err', { style: 'display:none' });
+    const showErr = (m) => { err.textContent = m; err.style.display = ''; };
+    let file = null, seconds = null, xhr = null;
+
+    const drop = h('div.drop',
+      h('div', { style: 'font-weight:700;margin-bottom:6px' }, 'اسحب ملف الفيديو هنا'),
+      h('div.small', 'أو اضغط للاختيار — MP4 (H.264) موصى بها'));
+    const picker = h('input', { type: 'file', accept: 'video/*', style: 'display:none' });
+
+    drop.addEventListener('click', () => picker.click());
+    ['dragover', 'dragenter'].forEach((e) => drop.addEventListener(e, (ev) => {
+      ev.preventDefault(); drop.classList.add('is-over');
+    }));
+    ['dragleave', 'drop'].forEach((e) =>
+      drop.addEventListener(e, () => drop.classList.remove('is-over')));
+    drop.addEventListener('drop', (ev) => { ev.preventDefault(); take(ev.dataTransfer.files[0]); });
+    picker.addEventListener('change', () => take(picker.files[0]));
+
+    function take(f) {
+      if (!f) return;
+      if (!f.type.startsWith('video/')) return showErr('الملفّ ليس فيديو.');
+      err.style.display = 'none';
+      file = f;
+      if (!fTitle.value) fTitle.value = f.name.replace(/\.[^.]+$/, '');
+
+      // المدّة تُقرأ من الملفّ لا تُطلب من المحرِّر: رقمٌ يُكتب يدويًا يُنسى
+      // أو يُخطأ، وهو يظهر للطالب على بطاقة الدرس.
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.onloadedmetadata = () => { seconds = Math.round(v.duration) || null;
+                                   URL.revokeObjectURL(v.src); showInfo(); };
+      v.onerror = () => { seconds = null; showInfo(); };
+      v.src = URL.createObjectURL(f);
+    }
+
+    function showInfo() {
+      const size = mb(file.size);
+      const perMin = seconds ? Math.round(size / (seconds / 60) * 10) / 10 : null;
+      info.replaceChildren(
+        h('div.row.mt', { style: 'gap:8px;flex-wrap:wrap' },
+          h('span.badge.badge--acc', `${ar(size)} م.ب`),
+          seconds && h('span.badge.badge--mute', fmtDur(seconds)),
+          perMin && h('span.badge.' + (perMin > 60 ? 'badge--warn' : 'badge--ok'),
+            `${ar(perMin)} م.ب/دقيقة`)),
+        // 1080p عند CRF 22 يقع حول ٢٥–٤٥ م.ب/دقيقة، فما تجاوز الستّين غالبًا
+        // لم يُضغط أصلًا — وكل ميغابايت زائد يتحمّله كل طالب.
+        perMin > 60 && h('div.help', { style: 'margin-top:8px' },
+          'أثقل من المتوقّع — يبدو أنه لم يُضغط. مرّره بـffmpeg أوّلًا: '
+          + 'crf 22 وpreset slow وmovflags +faststart.'));
+    }
+
+    const close = modal({
+      title: lessonTitle ? `رفع فيديو لـ«${lessonTitle}»` : 'رفع فيديو',
+      wide: true,
+      body: h('div', drop, picker, info,
+        h('div.mt',
+          field('العنوان', fTitle, 'يظهر في المكتبة — لا يراه الطالب.'),
+          field('الجودة', fQuality)),
+        progress, err),
+      actions: [
+        { label: 'إلغاء', onClick: (c) => { if (xhr) xhr.abort(); c(); } },
+        { label: 'رفع', kind: 'primary', onClick: () => start() },
+      ],
+    });
+
+    async function start() {
+      if (!file) return showErr('اختر ملفًا أوّلًا.');
+      if (!fTitle.value.trim()) return showErr('العنوان مطلوب.');
+      err.style.display = 'none';
+
+      const bar = h('div.bar', h('i', { style: 'width:0%' }));
+      const label = h('div.small.mb', 'جارٍ التوقيع…');
+      progress.replaceChildren(h('div.mt', label, bar));
+
+      try {
+        // ١) التوقيع — يفحص الحجم والصيغة قبل رفع بايت واحد
+        const sign = await Api.invoke('admin-video', {
+          action: 'sign', filename: file.name,
+          content_type: file.type, size_bytes: file.size,
+        });
+
+        // ٢) الرفع إلى R2 مباشرةً
+        label.textContent = 'جارٍ الرفع…';
+        await new Promise((resolve, reject) => {
+          xhr = new XMLHttpRequest();
+          xhr.open('PUT', sign.upload_url, true);
+          xhr.setRequestHeader('Content-Type', file.type);
+          xhr.upload.onprogress = (e) => {
+            if (!e.lengthComputable) return;
+            const pct = Math.round(e.loaded / e.total * 100);
+            bar.firstChild.style.width = pct + '%';
+            label.textContent = `جارٍ الرفع… ${ar(pct)}٪ `
+              + `(${ar(mb(e.loaded))} من ${ar(mb(e.total))} م.ب)`;
+          };
+          xhr.onload = () => (xhr.status >= 200 && xhr.status < 300)
+            ? resolve() : reject(new Error(`فشل الرفع إلى التخزين (${xhr.status}).`));
+          xhr.onerror = () => reject(new Error('انقطع الاتصال أثناء الرفع.'));
+          xhr.onabort = () => reject(new Error('أُلغي الرفع.'));
+          xhr.send(file);
+        });
+
+        // ٣) التسجيل — بعد نجاح الرفع لا قبله: لو سُجّل أوّلًا لبقي في المكتبة
+        // فيديو لا وجود له في R2 يُربط بدرس فيرى الطالب مشغّلًا لا يعمل.
+        label.textContent = 'جارٍ التسجيل…';
+        const res = await Api.invoke('admin-video', {
+          action: 'commit', r2_key: sign.r2_key, title: fTitle.value.trim(),
+          quality: fQuality.value, duration_s: seconds, size_bytes: file.size,
+        });
+
+        if (lessonId) await Api.update('lessons', lessonId, { video_id: res.video.id });
+
+        toast('رُفع الفيديو');
+        close();
+        onDone?.(res.video);
+      } catch (e) {
+        xhr = null;
+        progress.replaceChildren();
+        showErr(e.message || 'تعذّر الرفع.');
+      }
+    }
+  }
+
   return { pageHead, card, kpi, table, td, actions, field, input, textarea, select,
-           checkbox, modal, confirmDialog, toast, pubBadge, download };
+           checkbox, modal, confirmDialog, toast, pubBadge, download, videoUploader };
 })();

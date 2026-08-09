@@ -272,20 +272,33 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
      حدّ طلب Edge Function بضعة ميغابايت والدرس مئات، فالرفع عبرها مستحيل
      عمليًّا. الرابط الموقّع هو الطريق الوحيد. */
   const vidSrc = fs.readFileSync(dir + 'pages/videos.js', 'utf8');
+  // `contentSrc` مُعرَّفة أعلاه (سطر ١٥٧) — نعيد استعمالها لا نُظلّلها.
+  // منطق الرفع في المكوّن المشترك لا في الصفحتين: نسختان تنحرفان عند أوّل
+  // تعديل يُنسى في إحداهما.
+  const upSrc = fs.readFileSync(dir + 'components.js', 'utf8');
 
   ok('الرفع مباشر إلى R2 برابط موقّع',
-     /action: 'sign'/.test(vidSrc) && /xhr\.open\('PUT', sign\.upload_url/.test(vidSrc));
+     /action: 'sign'/.test(upSrc) && /xhr\.open\('PUT', sign\.upload_url/.test(upSrc));
+  ok('ومنطق الرفع مشترك لا مكرَّر',
+     /videoUploader/.test(upSrc)
+     && !/xhr\.open/.test(vidSrc) && !/xhr\.open/.test(contentSrc));
+  // الزرّ داخل الدرس نفسه: المحرِّر يصوّر ويكتب في جلسة واحدة، وإرساله إلى
+  // صفحة أخرى ليربط الفيديو خطوةٌ تُنسى فيُنشر درسٌ بلا فيديو.
+  ok('وزرّ الرفع داخل محرّر الدرس',
+     /C\.videoUploader\(\{[\s\S]{0,120}lessonId: l\.id/.test(contentSrc));
+  ok('ويربط الفيديو بالدرس تلقائيًّا',
+     /lessonId\) await Api\.update\('lessons', lessonId, \{ video_id/.test(upSrc));
   // fetch لا تعطي تقدّم رفع. وبلا مؤشّر يظنّ المحرِّر أن التطبيق تعلّق فيغلق
   // النافذة في منتصف رفع يستغرق دقائق على شبكة سورية.
-  ok('وبتقدّم حقيقي (XHR لا fetch)', /xhr\.upload\.onprogress/.test(vidSrc));
-  ok('ويمكن إلغاؤه', /xhr\.abort\(\)/.test(vidSrc));
+  ok('وبتقدّم حقيقي (XHR لا fetch)', /xhr\.upload\.onprogress/.test(upSrc));
+  ok('ويمكن إلغاؤه', /xhr\.abort\(\)/.test(upSrc));
 
   /* الترتيب: التسجيل **بعد** نجاح الرفع. لو سُجّل أوّلًا لبقي في المكتبة
      فيديو لا وجود له في R2، يُربط بدرس، فيرى الطالب مشغّلًا لا يعمل. */
   ok('والتسجيل بعد الرفع لا قبله',
-     vidSrc.indexOf("xhr.send(file)") < vidSrc.indexOf("action: 'commit'"));
+     upSrc.indexOf("xhr.send(file)") < upSrc.indexOf("action: 'commit'"));
 
-  ok('والمدّة تُقرأ من الملفّ لا تُطلب يدويًا', /onloadedmetadata/.test(vidSrc));
+  ok('والمدّة تُقرأ من الملفّ لا تُطلب يدويًا', /onloadedmetadata/.test(upSrc));
   ok('والحذف لا يمسّ R2', /الملفّ نفسه يبقى في R2|ما زال في R2/.test(vidSrc));
   // صفحة تُفتح ثم تفشل كل عملياتها تجربةٌ سيّئة لا حماية
   ok('والرفع معطَّل حين لا تخزين', /disabled: !r2Ready/.test(vidSrc));
@@ -327,6 +340,32 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
                'pages/students.js', 'pages/staff.js', 'pages/audit.js', 'pages/videos.js'];
   const corrupt = SRC.filter((f) => /Ø|Ã˜/.test(fs.readFileSync(dir + f, 'utf8')));
   ok('لا تلف في ترميز الملفات', corrupt.length === 0);
+
+  /* --- كل صفحة تُحلَّل نحويًّا -------------------------------------------------
+     خطأ صياغة في صفحة لا يُظهر أي رسالة للمستخدم: `Pages[current]` تصير
+     undefined، و`Pages[current] || Pages.dashboard` تعرض **لوحة المعلومات**
+     مكانها. فيبدو الأمر «الزرّ يفتح الصفحة الخطأ» لا «الصفحة معطوبة»، ويُبحث
+     عن العلّة في التوجيه لا في الملفّ. وقع هذا فعلًا في صفحة الفيديو: قوس
+     ناقص واحد.
+
+     `new Function` تُحلّل بلا تنفيذ — تكفي لالتقاط خطأ الصياغة. */
+  {
+    const pages = fs.readdirSync(dir + 'pages').filter((f) => f.endsWith('.js'));
+    const broken = [];
+    for (const f of pages) {
+      try { new Function(fs.readFileSync(dir + 'pages/' + f, 'utf8')); }
+      catch (e) { broken.push(`${f}: ${e.message}`); }
+    }
+    ok(`كل صفحات اللوحة تُحلَّل (${pages.length})`, broken.length === 0, broken.join(' · '));
+
+    // وكل صفحة في القائمة لها ملفّ مُحمَّل في index.html: صفحة غير محمَّلة
+    // تعطي نفس العرض الخاطئ بلا خطأ.
+    const html = fs.readFileSync(
+      require('node:path').join(__dirname, '..', 'index.html'), 'utf8');
+    const navIds = [...appSrc.matchAll(/\{ id: '([a-zA-Z]+)'/g)].map((m) => m[1]);
+    const missing = navIds.filter((id) => !html.includes(`pages/${id}.js`));
+    ok('وكل صفحة في القائمة محمَّلة في index.html', missing.length === 0, missing.join(', '));
+  }
 
   /* --- upsert الجزئي: خلل صامت حتى لحظة الضغط على الزرّ ---------------------
      `Api.upsert` تبني `INSERT … ON CONFLICT DO UPDATE`، وPostgres يتحقّق من

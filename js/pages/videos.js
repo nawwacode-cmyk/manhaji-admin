@@ -53,157 +53,26 @@ window.Pages = window.Pages || {};
     }
 
     // =========================================================================
-    // الرفع
+    // الرفع — عبر المكوّن المشترك (C.videoUploader)
+    //
+    // نسخة ثانية من منطق الرفع هنا كانت ستنحرف عن نظيرتها في محرّر الدرس
+    // عند أوّل تعديل يُنسى في إحداهما. المنطق دقيق: ترتيب التوقيع والرفع
+    // والتسجيل، والإلغاء، وقراءة المدّة — فمكانه واحد.
     // =========================================================================
     function uploader() {
       if (!r2Ready) {
         return C.modal({
-          title: 'التخزين غير مضبوط',
-          body: h('div',
-            h('div.mb', 'مفاتيح Cloudflare R2 غير مضبوطة على السيرفر.'),
-            h('span.help', 'اضبط R2_ACCOUNT_ID و R2_ACCESS_KEY_ID و '
-              + 'R2_SECRET_ACCESS_KEY و R2_BUCKET ثم أعد المحاولة.')),
-          actions: [{ label: 'حسنًا', kind: 'primary', onClick: (c) => c() }],
+          title: "التخزين غير مضبوط",
+          body: h("div",
+            h("div.mb", "مفاتيح Cloudflare R2 غير مضبوطة على السيرفر."),
+            h("span.help", "اضبط R2_ACCOUNT_ID و R2_ACCESS_KEY_ID و "
+              + "R2_SECRET_ACCESS_KEY و R2_BUCKET ثم أعد المحاولة.")),
+          actions: [{ label: "حسنًا", kind: "primary", onClick: (c) => c() }],
         });
       }
-
-      const fTitle = C.input({ placeholder: 'مثال: الوحدة ١ — التحيات' });
-      const fLesson = C.select([['', '— بلا ربط —'],
-        ...lessons.map((l) => [l.id, l.title_ar])], '');
-      // 1080p الافتراضية: دروسنا نصّية بصريًّا (قواعد وجداول)، والنصّ أوّل ما
-      // ينهار عند خفض الدقّة. والنقل من R2 مجّاني فالتوفير بلا مقابل.
-      const fQuality = C.select(
-        [['1080p', '1080p — موصى بها للنصّ'], ['720p', '720p'],
-         ['480p', '480p'], ['360p', '360p'], ['slides', 'شرائح + صوت']], '1080p');
-
-      const info = h('div');
-      const progress = h('div');
-      const err = h('div.badge.badge--err', { style: 'display:none' });
-      const showErr = (m) => { err.textContent = m; err.style.display = ''; };
-      let file = null, seconds = null, xhr = null;
-
-      const drop = h('div.drop',
-        h('div', { style: 'font-weight:700;margin-bottom:6px' }, 'اسحب ملف الفيديو هنا'),
-        h('div.small', 'أو اضغط للاختيار — MP4 (H.264) موصى بها'));
-
-      const picker = h('input', { type: 'file', accept: 'video/*', style: 'display:none' });
-      drop.addEventListener('click', () => picker.click());
-      ['dragover', 'dragenter'].forEach((e) => drop.addEventListener(e, (ev) => {
-        ev.preventDefault(); drop.classList.add('is-over');
-      }));
-      ['dragleave', 'drop'].forEach((e) =>
-        drop.addEventListener(e, () => drop.classList.remove('is-over')));
-      drop.addEventListener('drop', (ev) => { ev.preventDefault(); take(ev.dataTransfer.files[0]); });
-      picker.addEventListener('change', () => take(picker.files[0]));
-
-      function take(f) {
-        if (!f) return;
-        if (!f.type.startsWith('video/')) return showErr('الملفّ ليس فيديو.');
-        err.style.display = 'none';
-        file = f;
-        if (!fTitle.value) fTitle.value = f.name.replace(/\.[^.]+$/, '');
-
-        // المدّة تُقرأ من الملفّ نفسه لا تُطلب من المحرِّر: رقمٌ يُكتب يدويًا
-        // رقمٌ يُنسى أو يُخطأ، وهو يظهر للطالب على البطاقة.
-        const v = document.createElement('video');
-        v.preload = 'metadata';
-        v.onloadedmetadata = () => {
-          seconds = Math.round(v.duration) || null;
-          URL.revokeObjectURL(v.src);
-          showInfo();
-        };
-        v.onerror = () => { seconds = null; showInfo(); };
-        v.src = URL.createObjectURL(f);
-      }
-
-      function showInfo() {
-        const size = mb(file.size);
-        const perMin = seconds ? Math.round(size / (seconds / 60) * 10) / 10 : null;
-        info.replaceChildren(
-          h('div.row.mt', { style: 'gap:8px;flex-wrap:wrap' },
-            h('span.badge.badge--acc', `${ar(size)} م.ب`),
-            seconds && h('span.badge.badge--mute', fmtDur(seconds)),
-            perMin && h('span.badge.' + (perMin > 60 ? 'badge--warn' : 'badge--ok'),
-              `${ar(perMin)} م.ب/دقيقة`)),
-          // الحدّ ٦٠ م.ب/دقيقة: 1080p عند CRF 22 يقع حول ٢٥–٤٥، فما تجاوز
-          // الستّين غالبًا غير مضغوط أصلًا.
-          perMin > 60 && h('div.help', { style: 'margin-top:8px' },
-            'أثقل من المتوقّع — يبدو أنه لم يُضغط. مرّره بـffmpeg أوّلًا: '
-            + 'crf 22 وpreset slow وmovflags +faststart.'));
-      }
-
-      const close = C.modal({
-        title: 'رفع فيديو',
-        wide: true,
-        body: h('div',
-          drop, picker, info,
-          h('div.mt',
-            C.field('العنوان', fTitle, 'ما يظهر في المكتبة — لا يراه الطالب.'),
-            h('div.grid.grid--2',
-              C.field('الدرس المرتبط', fLesson, 'يمكن ربطه لاحقًا.'),
-              C.field('الجودة', fQuality))),
-          progress, err),
-        actions: [
-          { label: 'إلغاء', onClick: (c) => { if (xhr) xhr.abort(); c(); } },
-          { label: 'رفع', kind: 'primary', onClick: () => start() },
-        ],
-      });
-
-      async function start() {
-        if (!file) return showErr('اختر ملفًا أوّلًا.');
-        if (!fTitle.value.trim()) return showErr('العنوان مطلوب.');
-        err.style.display = 'none';
-
-        const bar = h('div.bar', h('i', { style: 'width:0%' }));
-        const label = h('div.small.mb', 'جارٍ التوقيع…');
-        progress.replaceChildren(h('div.mt', label, bar));
-
-        try {
-          // ١) التوقيع — يفحص الحجم والصيغة قبل رفع بايت واحد
-          const sign = await Api.invoke('admin-video', {
-            action: 'sign', filename: file.name,
-            content_type: file.type, size_bytes: file.size,
-          });
-
-          // ٢) الرفع إلى R2 مباشرةً، بتقدّم حقيقي
-          label.textContent = 'جارٍ الرفع…';
-          await new Promise((resolve, reject) => {
-            xhr = new XMLHttpRequest();
-            xhr.open('PUT', sign.upload_url, true);
-            xhr.setRequestHeader('Content-Type', file.type);
-            xhr.upload.onprogress = (e) => {
-              if (!e.lengthComputable) return;
-              const pct = Math.round(e.loaded / e.total * 100);
-              bar.firstChild.style.width = pct + '%';
-              label.textContent = `جارٍ الرفع… ${ar(pct)}٪ `
-                + `(${ar(mb(e.loaded))} من ${ar(mb(e.total))} م.ب)`;
-            };
-            xhr.onload = () => (xhr.status >= 200 && xhr.status < 300)
-              ? resolve()
-              : reject(new Error(`فشل الرفع إلى التخزين (${xhr.status}).`));
-            xhr.onerror = () => reject(new Error('انقطع الاتصال أثناء الرفع.'));
-            xhr.onabort = () => reject(new Error('أُلغي الرفع.'));
-            xhr.send(file);
-          });
-
-          // ٣) التسجيل — بعد نجاح الرفع لا قبله
-          label.textContent = 'جارٍ التسجيل…';
-          const res = await Api.invoke('admin-video', {
-            action: 'commit', r2_key: sign.r2_key, title: fTitle.value.trim(),
-            quality: fQuality.value, duration_s: seconds, size_bytes: file.size,
-          });
-
-          if (fLesson.value) await linkTo(res.video.id, fLesson.value);
-
-          C.toast('رُفع الفيديو');
-          close(); load();
-        } catch (e) {
-          xhr = null;
-          progress.replaceChildren();
-          showErr(e.message || 'تعذّر الرفع.');
-        }
-      }
+      C.videoUploader({ onDone: () => load() });
     }
+
 
     // =========================================================================
     function editor(v) {
@@ -306,7 +175,7 @@ window.Pages = window.Pages || {};
               'نبقى على 1080p ولا ننزل الدقّة: دروسنا نصّية بصريًّا (قواعد وجداول '
               + 'تصريف)، والنصّ أوّل ما ينهار عند خفض الدقّة فيقرأ الطالب ضبابًا. '
               + 'و«faststart» تجعل الفيديو يبدأ قبل اكتمال تنزيله — بدونها ينتظر '
-              + 'الطالب الملفّ كاملًا على شبكة بطيئة.'))),
+              + 'الطالب الملفّ كاملًا على شبكة بطيئة.')))),
       );
     }
 

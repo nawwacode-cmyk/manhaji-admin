@@ -125,9 +125,12 @@ window.Store = (function () {
     return { id: u.id, book: u.course_id, code: u.code, order: u.sort_order, title: u.title_ar };
   }
   function fromDbLesson(l) {
+    // `video` كان مثبَّتًا على null فكان **كل** درس يظهر «بلا فيديو» مهما
+    // كان مربوطًا فعلًا. الاستعلام يجلب `video_id` أصلًا (select: '*')،
+    // فالخلل كان في الربط لا في القراءة.
     return { id: l.id, unit: l.unit_id, code: l.code, order: l.sort_order,
              title: l.title_ar, minutes: l.est_minutes, page: null,
-             video: null, free: l.is_free, published: l.is_published,
+             video: l.video_id || null, free: l.is_free, published: l.is_published,
              body: l.body_html || '' };
   }
   /** الأقسام الأربعة التي يتصفّح الطالب تمارينه عبرها — راجع هجرة 20260802000400. */
