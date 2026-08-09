@@ -160,7 +160,40 @@ window.C = (function () {
     const progress = h('div');
     const err = h('div.badge.badge--err', { style: 'display:none' });
     const showErr = (m) => { err.textContent = m; err.style.display = ''; };
-    let file = null, seconds = null, height = null, xhr = null;
+    let file = null, seconds = null, height = null, xhr = null, poster = null;
+
+    /* لقطة من الفيديو تصير صورته.
+       تُلتقط آليًّا لا تُطلب من المحرِّر: خطوةٌ يدوية إضافية لكل درس تُنسى،
+       فتعود الدروس كلّها إلى الرسم النائب — تتشابه قبل فتحها ولا يميّز
+       الطالب ما شاهده ممّا لم يشاهده.
+
+       عند الثانية الثالثة لا الأولى: أوّل ثوانٍ كثيرًا ما تكون سوداء أو
+       شعارًا. وWebP بعرض ٧٢٠ يكفي لملصق يُعرض بعرض ٣٦٠ على الهاتف. */
+    function grabPoster(f) {
+      return new Promise((resolve) => {
+        const v = document.createElement('video');
+        v.preload = 'metadata';
+        v.muted = true;                       // بعض المتصفّحات ترفض seek بلا كتم
+        v.playsInline = true;
+        const done = (blob) => { URL.revokeObjectURL(v.src); resolve(blob); };
+
+        v.onloadedmetadata = () => { v.currentTime = Math.min(3, (v.duration || 4) / 2); };
+        v.onseeked = () => {
+          try {
+            const w = 720;
+            const cv = document.createElement('canvas');
+            cv.width = w;
+            cv.height = Math.round(w * (v.videoHeight / v.videoWidth || 0.5625));
+            cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
+            cv.toBlob((b) => done(b), 'image/webp', 0.8);
+          } catch { done(null); }        // ملفّ لا يُقرأ في canvas — لا نُفشل الرفع
+        };
+        v.onerror = () => done(null);
+        // مهلة: ملفّ لا يُفكّ ترميزه في المتصفّح يجب ألّا يعلّق الرفع
+        setTimeout(() => done(null), 8000);
+        v.src = URL.createObjectURL(f);
+      });
+    }
 
     const drop = h('div.drop',
       h('div', { style: 'font-weight:700;margin-bottom:6px' }, 'اسحب ملف الفيديو هنا'),
@@ -198,6 +231,11 @@ window.C = (function () {
       };
       v.onerror = () => { seconds = null; height = null; showInfo(); };
       v.src = URL.createObjectURL(f);
+
+      // اللقطة تُلتقط بالتوازي مع اختيار البيانات: تكون جاهزة قبل أن يضغط
+      // المحرِّر «رفع»، فلا تضيف انتظارًا.
+      poster = null;
+      grabPoster(f).then((b) => { poster = b; showInfo(); });
     }
 
     function showInfo() {
@@ -214,7 +252,11 @@ window.C = (function () {
           // يطابق ما رفعه فعلًا لا ما ظنّه.
           height && h('span.badge.badge--mute', `${ar(height)}p`),
           perMin && h('span.badge.' + (perMin > 60 ? 'badge--warn' : 'badge--ok'),
-            `${ar(perMin)} م.ب/دقيقة`)),
+            `${ar(perMin)} م.ب/دقيقة`),
+          // الصورة تُلتقط آليًّا؛ نقول إن تعذّرت كي لا يفاجأ المحرِّر بالرسم
+          // النائب بعد الرفع ولا يعرف السبب.
+          poster ? h('span.badge.badge--ok', 'الصورة جاهزة')
+                 : h('span.badge.badge--mute', 'جارٍ التقاط الصورة…')),
         // 1080p عند CRF 22 يقع حول ٢٥–٤٥ م.ب/دقيقة، فما تجاوز الستّين غالبًا
         // لم يُضغط أصلًا — وكل ميغابايت زائد يتحمّله كل طالب.
         perMin > 60 && h('div.help', { style: 'margin-top:8px' },
@@ -275,11 +317,27 @@ window.C = (function () {
           xhr.send(file);
         });
 
-        // ٣) التسجيل — بعد نجاح الرفع لا قبله: لو سُجّل أوّلًا لبقي في المكتبة
+        /* ٣) الصورة — بعد الفيديو وقبل التسجيل.
+           فشلها **لا يُفشل الرفع**: فيديو بلا صورة يعمل ويُشاهَد، وإسقاط
+           رفعٍ استغرق دقائق لأجل ملصق مقايضةٌ سيّئة. نسجّل بلا صورة ويظهر
+           الرسم النائب. */
+        let posterKey = null;
+        if (poster && sign.poster_upload_url) {
+          label.textContent = 'جارٍ رفع الصورة…';
+          try {
+            const pr = await fetch(sign.poster_upload_url, {
+              method: 'PUT', headers: { 'Content-Type': 'image/webp' }, body: poster,
+            });
+            if (pr.ok) posterKey = sign.poster_key;
+          } catch { /* بلا صورة — الرسم النائب */ }
+        }
+
+        // ٤) التسجيل — بعد نجاح الرفع لا قبله: لو سُجّل أوّلًا لبقي في المكتبة
         // فيديو لا وجود له في R2 يُربط بدرس فيرى الطالب مشغّلًا لا يعمل.
         label.textContent = 'جارٍ التسجيل…';
         const res = await Api.invoke('admin-video', {
-          action: 'commit', r2_key: sign.r2_key, title: fTitle.value.trim(),
+          action: 'commit', r2_key: sign.r2_key, poster_key: posterKey,
+          title: fTitle.value.trim(),
           quality: fQuality.value.trim() || (height ? height + 'p' : '1080p'),
           duration_s: seconds, size_bytes: file.size,
         });
