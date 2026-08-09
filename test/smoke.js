@@ -257,6 +257,17 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
 
   // المزوّد: أضيق دور في اللوحة. صفحة واحدة، ولا شيء من المحتوى ولا الطلاب
   // ولا المزوّدين الآخرين. (الحصر الحقيقي في SQL؛ هذا يمنع عرض ما سيُرفض.)
+  // صفحة الأعطال: بيانات مقصورة على المدير، وتُقرأ مجمَّعة لا خامًا
+  const errSrc = fs.readFileSync(dir + 'pages/errors.js', 'utf8');
+  ok('الأعطال عبر RPC مجمَّعة لا جدولًا خامًا',
+     /Api\.rpc\('admin_client_errors'/.test(errSrc)
+     && !/Api\.from\('client_errors'/.test(errSrc));
+  ok('وهي للمدير وحده', Store.ROLES.admin.can.includes('errors')
+     && !Store.ROLES.teacher.can.includes('errors')
+     && !Store.ROLES.provider.can.includes('errors'));
+  // «لا أعطال» يجب أن يُقال صراحةً: صفحةٌ فارغة بلا تفسير تُقرأ «معطّلة»
+  ok('وتقول صراحةً حين لا أعطال', /لا أعطال في هذه المدّة/.test(errSrc));
+
   ok('المزوّد لا يملك إلا صفحته', Store.ROLES.provider.can.length === 1
      && Store.ROLES.provider.can[0] === 'myCodes');
   ok('ولا يرى شيئًا من المحتوى أو الإدارة',

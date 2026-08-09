@@ -440,3 +440,13 @@ textarea.inp { height: auto; padding: 10px 12px; line-height: 1.75; resize: vert
   user-select: all;   /* نقرة واحدة تحدّده كلَّه */
   overflow-wrap: anywhere;
 }
+
+/* مكدَّس الاستدعاء في تفصيل العطل. `pre-wrap` لا `pre`: المكدَّس أسطر طويلة
+   لاتينية، و`pre` وحده يخرج بها عن النافذة أفقيًّا فلا يُقرأ آخرها. */
+.stack {
+  white-space: pre-wrap; overflow-wrap: anywhere; direction: ltr; text-align: left;
+  font-family: var(--mono); font-size: 12px; line-height: 1.6;
+  max-height: 320px; overflow-y: auto; margin: 6px 0 0;
+  padding: 12px; border-radius: 10px;
+  background: var(--surf2); border: 1px solid var(--brd);
+}

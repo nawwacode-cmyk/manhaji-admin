@@ -29,7 +29,7 @@ window.Store = (function () {
       label: 'مدير',
       can: ['dashboard', 'subjects', 'content', 'questions', 'exams', 'videos',
             'teachers', 'banners', 'students', 'codes', 'seasons', 'providers',
-            'staff', 'audit'],
+            'staff', 'audit', 'errors'],
     },
     teacher: {
       label: 'أستاذ',
