@@ -33,7 +33,10 @@ window.Store = (function () {
     },
     teacher: {
       label: 'أستاذ',
-      can: ['dashboard', 'content', 'questions', 'exams', 'videos'],
+      // `videos` مسحوبة: `admin-video` تفرض `requireAdmin`، فصفحةٌ تُفتح ثم
+      // تفشل كل عملياتها تجربةٌ سيّئة لا حماية. إن أردنا رفع الأساتذة
+      // للفيديو فالتغيير في الدالّة أوّلًا ثم هنا — لا هنا وحدها.
+      can: ['dashboard', 'content', 'questions', 'exams'],
     },
     // المزوّد لا يرى شيئًا من المحتوى ولا من الطلاب: صفحته الوحيدة لوحته هو.
     // والحصر الحقيقي في SQL (`provider_dashboard` تحصر بـmy_provider_id)، وهذا

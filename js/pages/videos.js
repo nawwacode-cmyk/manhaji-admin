@@ -1,208 +1,316 @@
 /* =============================================================================
    الفيديوهات — مكتبة ورفع وربط بالدروس
+
+   الملفّ **لا يمرّ عبر خوادمنا**: نطلب رابط PUT موقّعًا من `admin-video` ثم
+   يرفع المتصفّح إلى Cloudflare R2 مباشرةً. المرور عبر Edge Function مستحيل
+   عمليًّا — حدّ الطلب بضعة ميغابايت والدرس مئات.
+
+   والرفع بـXMLHttpRequest لا fetch: `fetch` لا تعطي تقدّم الرفع. وشريط
+   التقدّم ليس زينة هنا — رفع ٦٠٠ م.ب على شبكة سورية يستغرق دقائق، وبلا
+   مؤشّر يظنّ المحرِّر أن التطبيق تعلّق فيغلق النافذة في منتصف الرفع.
+
+   الترتيب: وقّع ← ارفع ← سجّل. التسجيل **بعد** نجاح الرفع، وإلّا بقي في
+   المكتبة فيديو لا وجود له في R2 يُربط بدرس فيرى الطالب مشغّلًا لا يعمل.
    ============================================================================= */
 window.Pages = window.Pages || {};
 
 (function () {
   const { h, ar } = UI;
 
-  const fmt = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  const fmtDur = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '—');
+  const mb = (b) => (b ? Math.round(b / 1048576 * 10) / 10 : 0);
+  const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString('ar',
+    { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
 
   Pages.videos = () => {
     const page = h('div.content');
     const wrap = h('div.wrap');
     page.appendChild(wrap);
 
-    function draw() {
-      const s = Store.get();
-      const totalMb = Math.round(s.videos.reduce((a, v) => a + v.mb, 0) * 10) / 10;
-      const noVideo = s.lessons.filter((l) => !l.video);
+    let videos = [], lessons = [], r2Ready = false, loadErr = null, busy = true;
 
-      // تقدير الكلفة: الحجم × عدد الطلاب المتوقّع. هذا الرقم هو الذي يقرّر
-      // جودة الترميز، ولا يجب أن يُكتشف بعد رفع ٢٤ فيديو.
-      const perStudent = totalMb;
-      const for100 = Math.round((perStudent * 100) / 1024 * 10) / 10;
+    async function load() {
+      busy = true;
+      try {
+        const [lib, ls] = await Promise.all([
+          Api.invoke('admin-video', { action: 'list' }),
+          // الدروس لربط الفيديو بها — عبر الجدول مباشرةً (محتوى لا مال)
+          Api.from('lessons', { select: 'id,title_ar,video_id,unit_id', order: 'sort_order' }),
+        ]);
+        videos = lib.videos || []; r2Ready = !!lib.r2_ready; lessons = ls || [];
+        loadErr = null;
+      } catch (e) { loadErr = e.message || 'تعذّر تحميل المكتبة.'; }
+      busy = false;
+      draw();
+    }
 
-      wrap.replaceChildren(
-        h('div.grid.grid--3.mb',
-          C.kpi('الفيديوهات', ar(s.videos.length)),
-          C.kpi('الحجم الإجمالي', `${totalMb} م.ب`, 'لكل طالب ينزّل الكل'),
-          C.kpi('تقدير النقل الشهري', `${for100} غيغا`, 'لو نزّلها ١٠٠ طالب',
-                for100 > 50 ? 'var(--warn)' : undefined)),
-
-        noVideo.length > 0 && h('div.mb',
-          C.card('دروس بلا فيديو',
-            C.table(['الدرس', ''], noVideo, (l) => [
-              h('div', { style: 'font-weight:600' }, l.title),
-              C.actions(h('button.btn.btn--sec.btn--sm', {
-                onclick: () => App.go('content', { lesson: l.id }),
-              }, 'افتح الدرس')),
-            ]),
-            h('span.badge.badge--warn', `${ar(noVideo.length)} درس`))),
-
-        C.card('مكتبة الفيديو',
-          C.table(['العنوان', 'الدرس المرتبط', 'المدة', 'الحجم', 'الجودة', 'الرفع', ''],
-            s.videos, (v) => {
-              const l = Store.lessonById(v.lesson);
-              return [
-                h('div', { style: 'font-weight:600' }, v.title),
-                l ? l.title : h('span.badge.badge--warn', 'غير مرتبط'),
-                h('span.num', fmt(v.seconds)),
-                h('span.num', `${v.mb} م.ب`),
-                h('span.badge.badge--mute', v.quality),
-                h('span.faint.small.mono', v.uploaded),
-                C.actions(
-                  h('button.btn.btn--sec.btn--sm', { onclick: () => edit(v) }, 'تعديل'),
-                  h('button.btn.btn--danger.btn--sm', {
-                    onclick: () => C.confirmDialog('حذف الفيديو',
-                      'سيُحذف الفيديو، والدرس المرتبط سيصبح بلا فيديو.',
-                      () => {
-                        Store.get().lessons.filter((x) => x.video === v.id)
-                          .forEach((x) => Store.upsert('lessons', { id: x.id, video: null }));
-                        Store.remove('videos', v.id); C.toast('حُذف الفيديو'); draw();
-                      }, 'حذف'),
-                  }, 'حذف')),
-              ];
-            }, 'لا فيديوهات بعد. ارفع أول فيديو لتربطه بدرس.'),
-          h('button.btn.btn--primary.btn--sm', { onclick: () => upload() }, '+ رفع فيديو')),
-
-        h('div.mt',
-          C.card('قرار الجودة — احسمه قبل تصوير الدروس', h('div',
-            C.table(['الجودة', 'الدرس (١٠ دقائق)', '٢٤ درسًا', 'ملاحظة'],
-              [
-                ['480p فيديو كامل', '~٦٠ م.ب', '١٫٤ غيغا', 'أعلى جودة، أثقل نقل'],
-                ['360p فيديو كامل', '~٣٤ م.ب', '٨٠٠ م.ب', 'مقبول على هاتف متوسط'],
-                ['شرائح + صوت شرح', '~١١ م.ب', '٢٦٠ م.ب', 'الأنسب لمنهاج لغة'],
-              ], (r) => r.map((c, i) => i === 3 ? h('span.faint.small', c) : c)),
-            h('div.help.mt',
-              'لمنهاج لغة أنت تشرح قواعد وجداول لا تُظهر حركة — الشرائح مع صوتك '
-              + 'تنزل بالحجم إلى الخُمس تقريبًا. هذا الفرق بين تطبيق يُنزَّل وتطبيق يُهجَر '
-              + 'على نت سوري.')))),
-      );
+    /** ربط/فكّ الفيديو بدرس. الجدول مباشرةً — `lessons` جدول محتوى لا مال. */
+    async function linkTo(videoId, lessonId, prevLessonIds = []) {
+      // نفكّ القديم أوّلًا: بلا هذا يشير درسان إلى نفس الفيديو، وهو ما لم
+      // يُقصد أبدًا حين يختار المحرِّر «الدرس المرتبط».
+      for (const id of prevLessonIds) await Api.update('lessons', id, { video_id: null });
+      if (lessonId) await Api.update('lessons', lessonId, { video_id: videoId });
     }
 
     // =========================================================================
-    function upload() {
-      const fTitle = C.input({ placeholder: 'Les salutations' });
+    // الرفع
+    // =========================================================================
+    function uploader() {
+      if (!r2Ready) {
+        return C.modal({
+          title: 'التخزين غير مضبوط',
+          body: h('div',
+            h('div.mb', 'مفاتيح Cloudflare R2 غير مضبوطة على السيرفر.'),
+            h('span.help', 'اضبط R2_ACCOUNT_ID و R2_ACCESS_KEY_ID و '
+              + 'R2_SECRET_ACCESS_KEY و R2_BUCKET ثم أعد المحاولة.')),
+          actions: [{ label: 'حسنًا', kind: 'primary', onClick: (c) => c() }],
+        });
+      }
+
+      const fTitle = C.input({ placeholder: 'مثال: الوحدة ١ — التحيات' });
       const fLesson = C.select([['', '— بلا ربط —'],
-        ...Store.lessonPaths().map((l) => [l.id, l.title])], '');
-      const fQuality = C.select([['360p', '360p'], ['480p', '480p'], ['slides', 'شرائح + صوت']], '360p');
+        ...lessons.map((l) => [l.id, l.title_ar])], '');
+      // 1080p الافتراضية: دروسنا نصّية بصريًّا (قواعد وجداول)، والنصّ أوّل ما
+      // ينهار عند خفض الدقّة. والنقل من R2 مجّاني فالتوفير بلا مقابل.
+      const fQuality = C.select(
+        [['1080p', '1080p — موصى بها للنصّ'], ['720p', '720p'],
+         ['480p', '480p'], ['360p', '360p'], ['slides', 'شرائح + صوت']], '1080p');
+
       const info = h('div');
       const progress = h('div');
-      let file = null;
+      const err = h('div.badge.badge--err', { style: 'display:none' });
+      const showErr = (m) => { err.textContent = m; err.style.display = ''; };
+      let file = null, seconds = null, xhr = null;
 
       const drop = h('div.drop',
         h('div', { style: 'font-weight:700;margin-bottom:6px' }, 'اسحب ملف الفيديو هنا'),
-        h('div.small', 'أو اضغط للاختيار — mp4 · webm'));
+        h('div.small', 'أو اضغط للاختيار — MP4 (H.264) موصى بها'));
 
       const picker = h('input', { type: 'file', accept: 'video/*', style: 'display:none' });
       drop.addEventListener('click', () => picker.click());
       ['dragover', 'dragenter'].forEach((e) => drop.addEventListener(e, (ev) => {
         ev.preventDefault(); drop.classList.add('is-over');
       }));
-      ['dragleave', 'drop'].forEach((e) => drop.addEventListener(e, () => drop.classList.remove('is-over')));
+      ['dragleave', 'drop'].forEach((e) =>
+        drop.addEventListener(e, () => drop.classList.remove('is-over')));
       drop.addEventListener('drop', (ev) => { ev.preventDefault(); take(ev.dataTransfer.files[0]); });
       picker.addEventListener('change', () => take(picker.files[0]));
 
       function take(f) {
         if (!f) return;
-        if (!f.type.startsWith('video/')) return C.toast('الملف ليس فيديو', 'err');
+        if (!f.type.startsWith('video/')) return showErr('الملفّ ليس فيديو.');
+        err.style.display = 'none';
         file = f;
-        const mb = Math.round(f.size / 1048576 * 10) / 10;
         if (!fTitle.value) fTitle.value = f.name.replace(/\.[^.]+$/, '');
 
-        // نقرأ المدة من الملف نفسه — لا نطلب من المستخدم إدخالها يدويًا
+        // المدّة تُقرأ من الملفّ نفسه لا تُطلب من المحرِّر: رقمٌ يُكتب يدويًا
+        // رقمٌ يُنسى أو يُخطأ، وهو يظهر للطالب على البطاقة.
         const v = document.createElement('video');
         v.preload = 'metadata';
         v.onloadedmetadata = () => {
-          file._seconds = Math.round(v.duration);
+          seconds = Math.round(v.duration) || null;
           URL.revokeObjectURL(v.src);
-          showInfo(mb, file._seconds);
+          showInfo();
         };
-        v.onerror = () => showInfo(mb, null);
+        v.onerror = () => { seconds = null; showInfo(); };
         v.src = URL.createObjectURL(f);
       }
 
-      function showInfo(mb, seconds) {
-        const perMin = seconds ? Math.round(mb / (seconds / 60) * 10) / 10 : null;
+      function showInfo() {
+        const size = mb(file.size);
+        const perMin = seconds ? Math.round(size / (seconds / 60) * 10) / 10 : null;
         info.replaceChildren(
-          h('div.row.mt',
-            h('span.badge.badge--acc', `${mb} م.ب`),
-            seconds && h('span.badge.badge--mute', fmt(seconds)),
-            perMin && h('span.badge.' + (perMin > 6 ? 'badge--warn' : 'badge--ok'),
-              `${perMin} م.ب/دقيقة`)),
-          perMin > 6 && h('div.help', { style: 'margin-top:8px' },
-            'أعلى من الموصى به. أعد ترميزه بجودة أقل قبل الرفع — كل ميغابايت '
-            + 'زائد يتحمّله كل طالب ينزّل الدرس.'));
+          h('div.row.mt', { style: 'gap:8px;flex-wrap:wrap' },
+            h('span.badge.badge--acc', `${ar(size)} م.ب`),
+            seconds && h('span.badge.badge--mute', fmtDur(seconds)),
+            perMin && h('span.badge.' + (perMin > 60 ? 'badge--warn' : 'badge--ok'),
+              `${ar(perMin)} م.ب/دقيقة`)),
+          // الحدّ ٦٠ م.ب/دقيقة: 1080p عند CRF 22 يقع حول ٢٥–٤٥، فما تجاوز
+          // الستّين غالبًا غير مضغوط أصلًا.
+          perMin > 60 && h('div.help', { style: 'margin-top:8px' },
+            'أثقل من المتوقّع — يبدو أنه لم يُضغط. مرّره بـffmpeg أوّلًا: '
+            + 'crf 22 وpreset slow وmovflags +faststart.'));
       }
 
-      C.modal({
+      const close = C.modal({
         title: 'رفع فيديو',
+        wide: true,
         body: h('div',
           drop, picker, info,
           h('div.mt',
-            C.field('العنوان', fTitle),
+            C.field('العنوان', fTitle, 'ما يظهر في المكتبة — لا يراه الطالب.'),
             h('div.grid.grid--2',
-              C.field('الدرس المرتبط', fLesson),
+              C.field('الدرس المرتبط', fLesson, 'يمكن ربطه لاحقًا.'),
               C.field('الجودة', fQuality))),
-          progress,
-          h('div.help',
-            'الرفع هنا محاكاة — لا يوجد تخزين بعد. عند ربط Supabase Storage '
-            + 'سيُرفع الملف فعليًا ويُصدر له رابط موقّع لا يُقرأ إلا باشتراك فعّال.')),
+          progress, err),
         actions: [
-          { label: 'إلغاء', onClick: (c) => c() },
-          { label: 'رفع', kind: 'primary', onClick: (c) => {
-              if (!file) return C.toast('اختر ملفًا أولًا', 'err');
-              if (!fTitle.value.trim()) return C.toast('العنوان مطلوب', 'err');
-
-              const id = 'v' + Date.now();
-              const mb = Math.round(file.size / 1048576 * 10) / 10;
-
-              // محاكاة تقدّم الرفع
-              const bar = h('div.bar', h('i', { style: 'width:0%' }));
-              progress.replaceChildren(h('div.mt', h('div.small.mb', 'جارٍ الرفع…'), bar));
-              let p = 0;
-              const t = setInterval(() => {
-                p = Math.min(100, p + 12);
-                bar.firstChild.style.width = p + '%';
-                if (p < 100) return;
-                clearInterval(t);
-                Store.upsert('videos', {
-                  id, title: fTitle.value.trim(), lesson: fLesson.value || null,
-                  seconds: file._seconds || 0, mb, quality: fQuality.value,
-                  uploaded: new Date().toISOString().slice(0, 10),
-                });
-                if (fLesson.value) Store.upsert('lessons', { id: fLesson.value, video: id });
-                c(); C.toast('رُفع الفيديو'); draw();
-              }, 140);
-            } },
+          { label: 'إلغاء', onClick: (c) => { if (xhr) xhr.abort(); c(); } },
+          { label: 'رفع', kind: 'primary', onClick: () => start() },
         ],
       });
+
+      async function start() {
+        if (!file) return showErr('اختر ملفًا أوّلًا.');
+        if (!fTitle.value.trim()) return showErr('العنوان مطلوب.');
+        err.style.display = 'none';
+
+        const bar = h('div.bar', h('i', { style: 'width:0%' }));
+        const label = h('div.small.mb', 'جارٍ التوقيع…');
+        progress.replaceChildren(h('div.mt', label, bar));
+
+        try {
+          // ١) التوقيع — يفحص الحجم والصيغة قبل رفع بايت واحد
+          const sign = await Api.invoke('admin-video', {
+            action: 'sign', filename: file.name,
+            content_type: file.type, size_bytes: file.size,
+          });
+
+          // ٢) الرفع إلى R2 مباشرةً، بتقدّم حقيقي
+          label.textContent = 'جارٍ الرفع…';
+          await new Promise((resolve, reject) => {
+            xhr = new XMLHttpRequest();
+            xhr.open('PUT', sign.upload_url, true);
+            xhr.setRequestHeader('Content-Type', file.type);
+            xhr.upload.onprogress = (e) => {
+              if (!e.lengthComputable) return;
+              const pct = Math.round(e.loaded / e.total * 100);
+              bar.firstChild.style.width = pct + '%';
+              label.textContent = `جارٍ الرفع… ${ar(pct)}٪ `
+                + `(${ar(mb(e.loaded))} من ${ar(mb(e.total))} م.ب)`;
+            };
+            xhr.onload = () => (xhr.status >= 200 && xhr.status < 300)
+              ? resolve()
+              : reject(new Error(`فشل الرفع إلى التخزين (${xhr.status}).`));
+            xhr.onerror = () => reject(new Error('انقطع الاتصال أثناء الرفع.'));
+            xhr.onabort = () => reject(new Error('أُلغي الرفع.'));
+            xhr.send(file);
+          });
+
+          // ٣) التسجيل — بعد نجاح الرفع لا قبله
+          label.textContent = 'جارٍ التسجيل…';
+          const res = await Api.invoke('admin-video', {
+            action: 'commit', r2_key: sign.r2_key, title: fTitle.value.trim(),
+            quality: fQuality.value, duration_s: seconds, size_bytes: file.size,
+          });
+
+          if (fLesson.value) await linkTo(res.video.id, fLesson.value);
+
+          C.toast('رُفع الفيديو');
+          close(); load();
+        } catch (e) {
+          xhr = null;
+          progress.replaceChildren();
+          showErr(e.message || 'تعذّر الرفع.');
+        }
+      }
     }
 
-    function edit(v) {
+    // =========================================================================
+    function editor(v) {
       const fTitle = C.input({ value: v.title });
+      const current = lessons.find((l) => l.video_id === v.id);
       const fLesson = C.select([['', '— بلا ربط —'],
-        ...Store.lessonPaths().map((l) => [l.id, l.title])], v.lesson || '');
+        ...lessons.map((l) => [l.id, l.title_ar])], current?.id || '');
+      const err = h('div.badge.badge--err', { style: 'display:none' });
 
       C.modal({
-        title: 'تعديل الفيديو',
-        body: h('div', C.field('العنوان', fTitle), C.field('الدرس المرتبط', fLesson)),
+        title: `تعديل: ${v.title}`,
+        body: h('div',
+          C.field('العنوان', fTitle),
+          C.field('الدرس المرتبط', fLesson),
+          h('div.help', { style: 'margin-top:10px' },
+            h('div', h('b', 'مفتاح R2: '), h('span.mono.small', v.r2_key)),
+            h('div', h('b', 'الحجم: '), `${ar(mb(v.size_bytes))} م.ب · `,
+              h('b', 'المدّة: '), fmtDur(v.duration_s))),
+          err),
         actions: [
           { label: 'إلغاء', onClick: (c) => c() },
-          { label: 'حفظ', kind: 'primary', onClick: (c) => {
-              // فكّ الربط القديم قبل ربط الجديد، وإلا بقي درسان يشيران لنفس الفيديو
-              Store.get().lessons.filter((l) => l.video === v.id)
-                .forEach((l) => Store.upsert('lessons', { id: l.id, video: null }));
-              Store.upsert('videos', { id: v.id, title: fTitle.value.trim(), lesson: fLesson.value || null });
-              if (fLesson.value) Store.upsert('lessons', { id: fLesson.value, video: v.id });
-              c(); C.toast('حُفظ'); draw();
-            } },
+          { label: 'حفظ', kind: 'primary', onClick: async (c) => {
+            try {
+              await Api.update('videos', v.id, { title: fTitle.value.trim() });
+              const prev = lessons.filter((l) => l.video_id === v.id).map((l) => l.id);
+              await linkTo(v.id, fLesson.value || null, prev);
+              C.toast('حُفظ'); c(); load();
+            } catch (e) { err.textContent = e.message || 'تعذّر الحفظ.'; err.style.display = ''; }
+          } },
         ],
       });
     }
 
-    draw();
+    function draw() {
+      if (loadErr) { wrap.replaceChildren(C.card('الفيديوهات', h('div.badge.badge--err', loadErr))); return; }
+
+      const totalMb = videos.reduce((a, v) => a + mb(v.size_bytes), 0);
+      const unlinked = videos.filter((v) => !v.lessons.length);
+      const noVideo = lessons.filter((l) => !l.video_id);
+
+      wrap.replaceChildren(
+        !r2Ready && !busy && h('div.badge.badge--warn.mb',
+          'تخزين R2 غير مضبوط على السيرفر — الرفع معطَّل.'),
+
+        h('div.grid.grid--3.mb',
+          C.kpi('الفيديوهات', ar(videos.length)),
+          C.kpi('حجم المكتبة', `${ar(Math.round(totalMb))} م.ب`,
+                'يُخزَّن مرّة — النقل من R2 مجّاني'),
+          // فيديو غير مربوط لا يراه طالب: عملٌ مرفوع ومدفوع تخزينه بلا فائدة
+          C.kpi('غير مربوط بدرس', ar(unlinked.length), unlinked.length ? 'لا يراه أحد' : null,
+                unlinked.length ? 'var(--warn)' : undefined)),
+
+        h('div.row.mb', { style: 'gap:10px;flex-wrap:wrap' },
+          h('span.grow'),
+          h('button.btn.btn--sec.btn--sm', { onclick: load }, 'تحديث'),
+          h('button.btn.btn--primary.btn--sm',
+            { onclick: uploader, disabled: !r2Ready }, '+ رفع فيديو')),
+
+        C.card('مكتبة الفيديو',
+          C.table(['العنوان', 'الدرس المرتبط', 'المدّة', 'الحجم', 'الجودة', 'رُفع', ''],
+            videos, (v) => [
+              h('div', { style: 'font-weight:600' }, v.title),
+              v.lessons.length
+                ? h('span.small', v.lessons.join('، '))
+                : h('span.badge.badge--warn', 'غير مرتبط'),
+              h('span.num', fmtDur(v.duration_s)),
+              h('span.num', `${ar(mb(v.size_bytes))} م.ب`),
+              h('span.badge.badge--mute', v.quality),
+              h('span.faint.small', fmtDate(v.created_at)),
+              C.actions(
+                h('button.btn.btn--sec.btn--sm', { onclick: () => editor(v) }, 'تعديل'),
+                h('button.btn.btn--danger.btn--sm', {
+                  onclick: () => C.confirmDialog('حذف الفيديو',
+                    'يُحذف السجلّ من المكتبة. الملفّ نفسه يبقى في R2 — حذفه '
+                    + 'لا رجعة فيه، فيُنظَّف يدويًّا من لوحة Cloudflare عند التأكّد.',
+                    async () => {
+                      try {
+                        await Api.invoke('admin-video', { action: 'remove', id: v.id });
+                        C.toast('حُذف السجلّ'); load();
+                      } catch (e) { C.toast(e.message || 'تعذّر الحذف', 'err'); }
+                    }, 'حذف'),
+                }, 'حذف')),
+            ], busy ? 'جارٍ التحميل…' : 'لا فيديوهات بعد. ارفع أوّل فيديو لتربطه بدرس.')),
+
+        noVideo.length > 0 && h('div.mt',
+          C.card('دروس بلا فيديو',
+            C.table(['الدرس', ''], noVideo.slice(0, 20), (l) => [
+              h('div', { style: 'font-weight:600' }, l.title_ar),
+              C.actions(h('button.btn.btn--sec.btn--sm',
+                { onclick: () => App.go('content') }, 'افتح الدروس')),
+            ]),
+            h('span.badge.badge--warn', `${ar(noVideo.length)} درسًا`))),
+
+        h('div.mt', C.card('قبل الرفع — اضغط الفيديو',
+          h('div',
+            h('div.mono.small', { style: 'direction:ltr;text-align:left;white-space:pre-wrap' },
+              'ffmpeg -i "input.mp4" -c:v libx264 -preset slow -crf 22 \\\n'
+              + '  -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart "output.mp4"'),
+            h('div.help', { style: 'margin-top:10px' },
+              'نبقى على 1080p ولا ننزل الدقّة: دروسنا نصّية بصريًّا (قواعد وجداول '
+              + 'تصريف)، والنصّ أوّل ما ينهار عند خفض الدقّة فيقرأ الطالب ضبابًا. '
+              + 'و«faststart» تجعل الفيديو يبدأ قبل اكتمال تنزيله — بدونها ينتظر '
+              + 'الطالب الملفّ كاملًا على شبكة بطيئة.'))),
+      );
+    }
+
+    load();
     return page;
   };
 })();

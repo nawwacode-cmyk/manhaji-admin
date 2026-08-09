@@ -268,6 +268,30 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
   // «لا أعطال» يجب أن يُقال صراحةً: صفحةٌ فارغة بلا تفسير تُقرأ «معطّلة»
   ok('وتقول صراحةً حين لا أعطال', /لا أعطال في هذه المدّة/.test(errSrc));
 
+  /* --- الفيديو: الملفّ لا يمرّ عبر خوادمنا ------------------------------------
+     حدّ طلب Edge Function بضعة ميغابايت والدرس مئات، فالرفع عبرها مستحيل
+     عمليًّا. الرابط الموقّع هو الطريق الوحيد. */
+  const vidSrc = fs.readFileSync(dir + 'pages/videos.js', 'utf8');
+
+  ok('الرفع مباشر إلى R2 برابط موقّع',
+     /action: 'sign'/.test(vidSrc) && /xhr\.open\('PUT', sign\.upload_url/.test(vidSrc));
+  // fetch لا تعطي تقدّم رفع. وبلا مؤشّر يظنّ المحرِّر أن التطبيق تعلّق فيغلق
+  // النافذة في منتصف رفع يستغرق دقائق على شبكة سورية.
+  ok('وبتقدّم حقيقي (XHR لا fetch)', /xhr\.upload\.onprogress/.test(vidSrc));
+  ok('ويمكن إلغاؤه', /xhr\.abort\(\)/.test(vidSrc));
+
+  /* الترتيب: التسجيل **بعد** نجاح الرفع. لو سُجّل أوّلًا لبقي في المكتبة
+     فيديو لا وجود له في R2، يُربط بدرس، فيرى الطالب مشغّلًا لا يعمل. */
+  ok('والتسجيل بعد الرفع لا قبله',
+     vidSrc.indexOf("xhr.send(file)") < vidSrc.indexOf("action: 'commit'"));
+
+  ok('والمدّة تُقرأ من الملفّ لا تُطلب يدويًا', /onloadedmetadata/.test(vidSrc));
+  ok('والحذف لا يمسّ R2', /الملفّ نفسه يبقى في R2|ما زال في R2/.test(vidSrc));
+  // صفحة تُفتح ثم تفشل كل عملياتها تجربةٌ سيّئة لا حماية
+  ok('والرفع معطَّل حين لا تخزين', /disabled: !r2Ready/.test(vidSrc));
+  ok('والفيديو للمدير وحده (الدالّة تفرض requireAdmin)',
+     Store.ROLES.admin.can.includes('videos') && !Store.ROLES.teacher.can.includes('videos'));
+
   ok('المزوّد لا يملك إلا صفحته', Store.ROLES.provider.can.length === 1
      && Store.ROLES.provider.can[0] === 'myCodes');
   ok('ولا يرى شيئًا من المحتوى أو الإدارة',

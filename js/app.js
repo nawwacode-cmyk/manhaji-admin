@@ -19,7 +19,7 @@ window.App = (function () {
     { id: 'content',   label: 'الدروس',      ico: () => icon.book(19) },
     { id: 'questions', label: 'بنك الأسئلة', ico: () => icon.help(19) },
     // { id: 'exams',     label: 'الامتحانات',    ico: () => icon.exam(19) },
-    // { id: 'videos',    label: 'الفيديوهات',    ico: () => icon.video(19) },
+    { id: 'videos',    label: 'الفيديوهات',  ico: () => icon.video(19) },
     { sec: 'الواجهة' },
     { id: 'teachers',  label: 'الأساتذة',    ico: () => icon.users(19) },
     { id: 'banners',   label: 'البانرات',    ico: () => icon.video(19) },
