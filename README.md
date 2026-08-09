@@ -12,7 +12,7 @@
 بعد اليوم. لإنشاء حساب مدرّس أو أدمن:
 
 ```bash
-cd ../syria-edu/tools
+cd ../manhaji-backend/tools
 node create-staff/index.js --email sami@manhaji.app --password "..." \
      --name "الأستاذ سامي" --role teacher
 ```
