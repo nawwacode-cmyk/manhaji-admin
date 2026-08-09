@@ -299,6 +299,13 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
      upSrc.indexOf("xhr.send(file)") < upSrc.indexOf("action: 'commit'"));
 
   ok('والمدّة تُقرأ من الملفّ لا تُطلب يدويًا', /onloadedmetadata/.test(upSrc));
+  /* الجودة كذلك: القائمة المغلقة كانت تجبر المحرِّر على الكذب — يرفع 1440p
+     فيسمّيه 1080p لأن لا خيار غيره. الملفّ يعرف أبعاده. */
+  ok('والجودة تُقرأ من أبعاد الملفّ', /videoHeight/.test(upSrc));
+  ok('والحقل حرّ لا قائمة مغلقة',
+     /const fQuality = input\(/.test(upSrc) && !/const fQuality = select\(/.test(upSrc));
+  // لا نطمس ما كتبه المحرِّر بيده: القراءة الآلية تُعين لا تُلغي
+  ok('ولا تطمس ما كتبه المحرِّر', /if \(height && !fQuality\.value\)/.test(upSrc));
   ok('والحذف لا يمسّ R2', /الملفّ نفسه يبقى في R2|ما زال في R2/.test(vidSrc));
   // صفحة تُفتح ثم تفشل كل عملياتها تجربةٌ سيّئة لا حماية
   ok('والرفع معطَّل حين لا تخزين', /disabled: !r2Ready/.test(vidSrc));

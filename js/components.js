@@ -146,17 +146,21 @@ window.C = (function () {
 
     const fTitle = input({ placeholder: lessonTitle || 'مثال: الوحدة ١ — التحيات' });
     if (lessonTitle) fTitle.value = lessonTitle;
-    // 1080p افتراضية: الدروس نصّية بصريًّا (قواعد وجداول)، والنصّ أوّل ما
-    // ينهار عند خفض الدقّة. والنقل من R2 مجّاني فالتوفير بلا مقابل.
-    const fQuality = select(
-      [['1080p', '1080p — موصى بها للنصّ'], ['720p', '720p'], ['480p', '480p'],
-       ['360p', '360p'], ['slides', 'شرائح + صوت']], '1080p');
+    /* الجودة: تُقرأ من الملفّ نفسه وتبقى قابلة للتعديل.
+       القائمة المغلقة السابقة كانت تجبر المحرِّر على الكذب — يرفع 1440p
+       فيسمّيه 1080p لأن لا خيار غيره. والقراءة الآلية تُنهي السؤال أصلًا:
+       الملفّ يعرف أبعاده، فلا معنى لسؤال إنسانٍ عنها.
+       والحقل حرّ لا مقفل: «شرائح + صوت» أو أي وصف آخر مقبول. */
+    const fQuality = input({ placeholder: 'تُقرأ من الملفّ…', list: 'q-presets' });
+    const presets = h('datalist', { id: 'q-presets' },
+      ...['2160p', '1440p', '1080p', '720p', '480p', '360p', 'slides']
+        .map((v) => h('option', { value: v })));
 
     const info = h('div');
     const progress = h('div');
     const err = h('div.badge.badge--err', { style: 'display:none' });
     const showErr = (m) => { err.textContent = m; err.style.display = ''; };
-    let file = null, seconds = null, xhr = null;
+    let file = null, seconds = null, height = null, xhr = null;
 
     const drop = h('div.drop',
       h('div', { style: 'font-weight:700;margin-bottom:6px' }, 'اسحب ملف الفيديو هنا'),
@@ -183,9 +187,16 @@ window.C = (function () {
       // أو يُخطأ، وهو يظهر للطالب على بطاقة الدرس.
       const v = document.createElement('video');
       v.preload = 'metadata';
-      v.onloadedmetadata = () => { seconds = Math.round(v.duration) || null;
-                                   URL.revokeObjectURL(v.src); showInfo(); };
-      v.onerror = () => { seconds = null; showInfo(); };
+      v.onloadedmetadata = () => {
+        seconds = Math.round(v.duration) || null;
+        // الارتفاع هو ما يسمّي الجودة عرفًا (1080p لا 1920p). ولا نطمس ما
+        // كتبه المحرِّر بيده: القراءة الآلية تُعين لا تُلغي.
+        height = v.videoHeight || null;
+        if (height && !fQuality.value) fQuality.value = `${height}p`;
+        URL.revokeObjectURL(v.src);
+        showInfo();
+      };
+      v.onerror = () => { seconds = null; height = null; showInfo(); };
       v.src = URL.createObjectURL(f);
     }
 
@@ -199,6 +210,9 @@ window.C = (function () {
         h('div.row.mt', { style: 'gap:8px;flex-wrap:wrap' },
           h('span.badge.badge--acc', `${ar(size)} م.ب`),
           seconds && h('span.badge.badge--mute', fmtDur(seconds)),
+          // الأبعاد المقروءة من الملفّ: تُعرض ليرى المحرِّر أن ما في الحقل
+          // يطابق ما رفعه فعلًا لا ما ظنّه.
+          height && h('span.badge.badge--mute', `${ar(height)}p`),
           perMin && h('span.badge.' + (perMin > 60 ? 'badge--warn' : 'badge--ok'),
             `${ar(perMin)} م.ب/دقيقة`)),
         // 1080p عند CRF 22 يقع حول ٢٥–٤٥ م.ب/دقيقة، فما تجاوز الستّين غالبًا
@@ -215,7 +229,9 @@ window.C = (function () {
       body: h('div', drop, picker, info,
         h('div.mt',
           field('العنوان', fTitle, 'يظهر في المكتبة — لا يراه الطالب.'),
-          field('الجودة', fQuality)),
+          field('الجودة', fQuality,
+            'تُقرأ من أبعاد الملفّ تلقائيًّا — عدّلها إن شئت أو اكتب أي وصف.')),
+        presets,
         progress, err),
       actions: [
         { label: 'إلغاء', onClick: (c) => { if (xhr) xhr.abort(); c(); } },
@@ -264,7 +280,8 @@ window.C = (function () {
         label.textContent = 'جارٍ التسجيل…';
         const res = await Api.invoke('admin-video', {
           action: 'commit', r2_key: sign.r2_key, title: fTitle.value.trim(),
-          quality: fQuality.value, duration_s: seconds, size_bytes: file.size,
+          quality: fQuality.value.trim() || (height ? height + 'p' : '1080p'),
+          duration_s: seconds, size_bytes: file.size,
         });
 
         if (lessonId) await Api.update('lessons', lessonId, { video_id: res.video.id });
