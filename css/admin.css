@@ -428,3 +428,15 @@ textarea.inp { height: auto; padding: 10px 12px; line-height: 1.75; resize: vert
   50%      { stroke-dashoffset: 164.93; transform: translate(100px,100px) rotate(-113deg); }
   75%, to  { stroke-dashoffset: 439.82; transform: translate(100px,100px) rotate(112deg); }
 }
+
+/* الكود الصريح لحظة إصداره — يظهر مرّة واحدة ولا يُخزَّن، فيجب أن يُقرأ
+   ويُنسخ بلا خطأ. حجم كبير وتباعد حروف واضح: كود يُملى على الهاتف حرفًا حرفًا
+   لا يحتمل التباسًا بين محرفين متشابهين. */
+.code-out {
+  font-family: var(--mono); direction: ltr; unicode-bidi: isolate;
+  font-size: 24px; font-weight: 700; letter-spacing: 2px; text-align: center;
+  padding: 18px 12px; border-radius: 12px;
+  background: var(--surf2); border: 1px dashed var(--brd2);
+  user-select: all;   /* نقرة واحدة تحدّده كلَّه */
+  overflow-wrap: anywhere;
+}

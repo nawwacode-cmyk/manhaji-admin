@@ -28,11 +28,19 @@ window.Store = (function () {
     admin: {
       label: 'مدير',
       can: ['dashboard', 'subjects', 'content', 'questions', 'exams', 'videos',
-            'teachers', 'banners', 'students', 'codes', 'staff', 'audit'],
+            'teachers', 'banners', 'students', 'codes', 'seasons', 'providers',
+            'staff', 'audit'],
     },
     teacher: {
       label: 'أستاذ',
       can: ['dashboard', 'content', 'questions', 'exams', 'videos'],
+    },
+    // المزوّد لا يرى شيئًا من المحتوى ولا من الطلاب: صفحته الوحيدة لوحته هو.
+    // والحصر الحقيقي في SQL (`provider_dashboard` تحصر بـmy_provider_id)، وهذا
+    // هنا لإخفاء ما سيرفضه السيرفر لا للحماية به.
+    provider: {
+      label: 'مزوّد',
+      can: ['myCodes'],
     },
   };
 

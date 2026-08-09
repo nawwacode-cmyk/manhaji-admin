@@ -216,11 +216,22 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
   const codesSrc    = fs.readFileSync(dir + 'pages/codes.js', 'utf8');
   const studentsSrc = fs.readFileSync(dir + 'pages/students.js', 'utf8');
   const dashSrc     = fs.readFileSync(dir + 'pages/dashboard.js', 'utf8');
+  const myCodesSrc  = fs.readFileSync(dir + 'pages/myCodes.js', 'utf8');
 
   ok('الطاقم عبر Edge Function لا PostgREST',
      /Api\.invoke\('admin-staff'/.test(staffSrc) && !/Api\.from\(/.test(staffSrc));
-  ok('الأكواد عبر Edge Function لا PostgREST',
-     /Api\.invoke\('admin-codes'/.test(codesSrc) && !/Api\.from\(/.test(codesSrc));
+  // الإصدار صار مفردًا عبر issue-code لا توليدًا جماعيًا عبر admin-codes.
+  // `Api.from` مسموحة هنا لكتالوج الباقات وحده (عامّ، لا مال فيه) — ما يُمنع
+  // هو جداول المال، ويفحصه حارس `leaky` أدناه على كل الصفحات.
+  ok('إصدار الأكواد عبر Edge Function لا كتابة مباشرة',
+     /Api\.invoke\('issue-code'/.test(codesSrc)
+     && !/Api\.(upsert|remove)\('activation_codes'/.test(codesSrc));
+  ok('وقراءتها عبر تقرير مجمَّع لا جدولًا خامًا',
+     /Api\.rpc\('admin_codes_report'/.test(codesSrc));
+  ok('ولوحة المزوّد كذلك عبر دالّة تحصره بنفسه',
+     /Api\.rpc\('provider_dashboard'/.test(myCodesSrc)
+     // بلا وسيط معرّف مزوّد: الحصر في SQL لا في الواجهة
+     && !/provider_dashboard'[^)]*p_provider/.test(myCodesSrc));
   ok('الطلاب عبر RPC لا قراءة جداول',
      /Api\.rpc\('admin_students'/.test(studentsSrc)
      && !/Api\.from\('(subscriptions|devices|profiles)'/.test(studentsSrc));
@@ -228,23 +239,46 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
 
   // لا صفحة تقرأ جداول المال مباشرةً بأي شكل
   const ALL_PAGES = ['staff', 'codes', 'students', 'dashboard', 'audit',
-                     'subjects', 'teachers', 'banners'];
+                     'subjects', 'teachers', 'banners',
+                     'seasons', 'providers', 'myCodes'];
   const leaky = ALL_PAGES.filter((p) => {
     const src = fs.readFileSync(dir + `pages/${p}.js`, 'utf8');
-    return /Api\.from\('(subscriptions|activation_codes|devices|code_batches|redeem_attempts)'/.test(src);
+    // `students` أُضيف للقائمة: فيه أسماء الزبائن وأرقامهم — قاعدة عملائك
+    // حرفيًّا. يُقرأ عبر التقارير المجمَّعة لا كجدول خام.
+    return /Api\.from\('(subscriptions|activation_codes|devices|code_batches|redeem_attempts|students)'/.test(src);
   });
   ok('لا صفحة تقرأ جداول المال/الأجهزة مباشرةً', leaky.length === 0, leaky.join(', '));
 
   // القائمة الجانبية لا تعرض شيئًا لا يفرضه السيرفر
   ok('أقسام الإدارة كلها في صلاحيات المدير وحده',
-     ['students', 'codes', 'staff', 'audit', 'subjects', 'teachers', 'banners']
+     ['students', 'codes', 'staff', 'audit', 'subjects', 'teachers', 'banners',
+      'seasons', 'providers']
        .every((x) => Store.ROLES.admin.can.includes(x) && !Store.ROLES.teacher.can.includes(x)));
 
-  // الأكواد الصريحة: تنزيل فوري لا زرّ اختياري
-  ok('ملف الأكواد يُنزَّل تلقائيًا فور التوليد',
-     /C\.download\(file, csv\)[\s\S]{0,80}showCodes/.test(codesSrc)
-     || /C\.download\(file, csv\);\s*\n\s*close\(\);/.test(codesSrc));
-  ok('الأكواد لا تُخزَّن محليًا', !/localStorage[\s\S]{0,40}codes/i.test(codesSrc));
+  // المزوّد: أضيق دور في اللوحة. صفحة واحدة، ولا شيء من المحتوى ولا الطلاب
+  // ولا المزوّدين الآخرين. (الحصر الحقيقي في SQL؛ هذا يمنع عرض ما سيُرفض.)
+  ok('المزوّد لا يملك إلا صفحته', Store.ROLES.provider.can.length === 1
+     && Store.ROLES.provider.can[0] === 'myCodes');
+  ok('ولا يرى شيئًا من المحتوى أو الإدارة',
+     ['content', 'questions', 'students', 'codes', 'providers', 'staff', 'audit', 'seasons']
+       .every((x) => !Store.ROLES.provider.can.includes(x)));
+  ok('ولا المدير ولا الأستاذ يقعان في صفحة المزوّد',
+     !Store.ROLES.teacher.can.includes('myCodes'));
+
+  // الكود الصريح صار واحدًا يُعرض لا ملفًّا بالمئات يُنزَّل. الخطر تبدّل معه:
+  // لم يعد «ملف قد يُنسى تنزيله» بل «كود قد يُغلَق عنه قبل نسخه» — فالتحذير
+  // في اللحظة، وزرّ نسخ، هما ما يحلّ محلّ التنزيل التلقائي.
+  for (const [name, src] of [['صفحة الأكواد', codesSrc], ['لوحة المزوّد', myCodesSrc]]) {
+    ok(`${name}: الكود يُعرض بعد الإصدار مباشرةً`, /code-out/.test(src));
+    ok(`${name}: مع تحذير أنه لا يُستعاد`, /لا يمكن استعادته|لا يُخزَّن صريحًا/.test(src));
+    ok(`${name}: وزرّ نسخ`, /clipboard\.writeText/.test(src));
+    ok(`${name}: ولا يُخزَّن محليًا`, !/localStorage[\s\S]{0,40}code/i.test(src));
+  }
+  // التوليد الجماعي أُزيل فعلًا لا أُخفي: بقاؤه في الشيفرة يعني مسارًا ثانيًا
+  // يُنتج أكوادًا مجهولة الطالب بينما يظنّ الجميع أنه أُلغي.
+  ok('لا أثر للتوليد الجماعي في الصفحة',
+     !/admin-codes/.test(codesSrc) && !/code_batches/.test(codesSrc)
+     && !/\bqty\b/.test(codesSrc));
 
   // stats() المحلية ما عادت تخترع أرقام طلاب/أكواد من SEED الوهمية
   ok('stats المحلية بلا أرقام طلاب أو أكواد وهمية',
