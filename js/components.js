@@ -192,7 +192,10 @@ window.C = (function () {
     function showInfo() {
       const size = mb(file.size);
       const perMin = seconds ? Math.round(size / (seconds / 60) * 10) / 10 : null;
-      info.replaceChildren(
+      /* الترشيح ضروري: `replaceChildren` الأصلية تحوّل `false` إلى **عقدة
+         نصّية** فتظهر كلمة "false" في الواجهة — بخلاف `UI.h` التي تُسقط
+         الزائف. وقع هذا فعلًا: ظهرت "false" تحت شارات حجم الملفّ. */
+      info.replaceChildren(...[
         h('div.row.mt', { style: 'gap:8px;flex-wrap:wrap' },
           h('span.badge.badge--acc', `${ar(size)} م.ب`),
           seconds && h('span.badge.badge--mute', fmtDur(seconds)),
@@ -202,7 +205,8 @@ window.C = (function () {
         // لم يُضغط أصلًا — وكل ميغابايت زائد يتحمّله كل طالب.
         perMin > 60 && h('div.help', { style: 'margin-top:8px' },
           'أثقل من المتوقّع — يبدو أنه لم يُضغط. مرّره بـffmpeg أوّلًا: '
-          + 'crf 22 وpreset slow وmovflags +faststart.'));
+          + 'crf 22 وpreset slow وmovflags +faststart.'),
+      ].filter(Boolean));
     }
 
     const close = modal({
