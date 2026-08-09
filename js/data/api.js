@@ -177,6 +177,33 @@ window.Api = (function () {
     return out;
   }
 
+  /**
+   * تعديل جزئي لصفّ قائم — PATCH لا upsert.
+   *
+   * `upsert` أعلاه تبني `INSERT … ON CONFLICT DO UPDATE`، وPostgres يتحقّق من
+   * قيود `NOT NULL` على صفّ الإدراج **قبل** أن يصل إلى مرحلة الدمج. فتمرير
+   * حقلين فقط لصفّ فيه أعمدة إلزامية أخرى يُخفق بـ
+   * `null value in column … violates not-null constraint`
+   * رغم أن الصفّ موجود ولا شيء سيُدرَج فعلًا. وقع هذا فعلًا عند تعيين
+   * «الموسم الحالي»: أُرسل `{id, is_current}` فاشتكى من `code` الفارغ.
+   *
+   * القاعدة: `upsert` لصفّ كامل، و`update` لتعديل حقل أو حقلين.
+   */
+  async function update(table, id, patch) {
+    const out = await request(`/rest/v1/${table}?id=eq.${id}`, {
+      method: 'PATCH',
+      body: patch,
+      headers: { Prefer: 'return=representation' },
+    });
+    // المنع في RLS يعود 200 بمصفوفة فارغة لا خطأً — بلا هذا الفحص نقرأ المنع
+    // نجاحًا ونخبر المستخدم أن تعديله حُفظ وهو لم يُحفظ.
+    if (Array.isArray(out) && out.length === 0) {
+      throw new ApiError('rls_denied',
+        'لا تملك صلاحية التعديل على هذا العنصر.', 403);
+    }
+    return out;
+  }
+
   /** يطلب تمثيل المحذوف لنفس السبب أعلاه: الحذف الممنوع يعود 204 صامتًا. */
   async function remove(table, id) {
     const out = await request(`/rest/v1/${table}?id=eq.${id}`, {
@@ -311,7 +338,7 @@ window.Api = (function () {
   return {
     URL_BASE, ANON, ApiError,
     isSignedIn, userId, session: () => session, refresh,
-    request, from, upsert, remove, replaceJoin, invoke, rpc,
+    request, from, upsert, update, remove, replaceJoin, invoke, rpc,
     uploadImage, deleteImage, publicUrl,
     signInWithPassword, signOut,
   };

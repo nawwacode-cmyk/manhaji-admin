@@ -292,6 +292,35 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
                'pages/students.js', 'pages/staff.js', 'pages/audit.js', 'pages/videos.js'];
   const corrupt = SRC.filter((f) => /Ø|Ã˜/.test(fs.readFileSync(dir + f, 'utf8')));
   ok('لا تلف في ترميز الملفات', corrupt.length === 0);
+
+  /* --- upsert الجزئي: خلل صامت حتى لحظة الضغط على الزرّ ---------------------
+     `Api.upsert` تبني `INSERT … ON CONFLICT DO UPDATE`، وPostgres يتحقّق من
+     قيود NOT NULL على صفّ الإدراج **قبل** بلوغ مرحلة الدمج. فتمرير حقل أو
+     حقلين لصفّ فيه أعمدة إلزامية أخرى يُخفق بـ
+     `null value in column … violates not-null constraint`
+     رغم أن الصفّ موجود ولن يُدرَج شيء. وقع هذا فعلًا في «اجعله الحالي».
+
+     الحارس: أي استدعاء upsert لا يحمل إلّا `id` وحقلًا واحدًا هو تعديل جزئي
+     متنكّر — يجب أن يكون `update`. */
+  {
+    const PAGES = fs.readdirSync(dir + 'pages').filter((f) => f.endsWith('.js'));
+    const bad = [];
+    for (const f of PAGES) {
+      const src = fs.readFileSync(dir + 'pages/' + f, 'utf8');
+      // العدّ بالفواصل لا بالنقطتين: `{ id, is_current: true }` اختصارٌ بلا
+      // نقطتين بعد id، فتعبيرٌ يشترطها يمرّ على الخلل بلا أن يراه — وهو ما
+      // وقع فعلًا في أوّل صياغة لهذا الحارس.
+      const re = /Api\.upsert\(\s*'([a-z_]+)'\s*,\s*(\{[^{}]*\})\s*\)/g;
+      let m;
+      while ((m = re.exec(src))) {
+        const obj = m[2];
+        if (obj.includes('...')) continue;           // نشرٌ ⇒ صفّ كامل، لا جزئي
+        if (!/\bid\b/.test(obj)) continue;           // بلا id ⇒ إدراج جديد
+        if (obj.split(',').length <= 2) bad.push(`${f} → ${m[1]}`);
+      }
+    }
+    ok('لا upsert جزئي (استعمل update للتعديل الجزئي)', bad.length === 0, bad.join(' · '));
+  }
   corrupt.forEach((f) => console.log('   ← ترميز تالف: ' + f));
 
   console.log('\n' + (fail.length ? `${fail.length} فشل` : 'كل الاختبارات نجحت'));

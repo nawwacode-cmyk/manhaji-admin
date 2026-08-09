@@ -119,7 +119,9 @@ window.Pages = window.Pages || {};
           { label: 'ربط', kind: 'primary', onClick: async (close) => {
             if (!sel.value) { err.textContent = 'اختر حسابًا.'; err.style.display = ''; return; }
             try {
-              await Api.upsert('providers', { id: p.id, profile_id: sel.value });
+              // تعديل حقل واحد ⇒ update لا upsert (الأخيرة تشتكي من name/location
+              // الإلزاميين رغم أن الصفّ موجود ولن يُدرَج شيء).
+              await Api.update('providers', p.id, { profile_id: sel.value });
               C.toast('رُبط الحساب'); close(); load();
             } catch (e) { err.textContent = e.message || 'تعذّر الربط.'; err.style.display = ''; }
           } },

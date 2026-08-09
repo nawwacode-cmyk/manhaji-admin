@@ -46,8 +46,10 @@ window.Pages = window.Pages || {};
     async function setCurrent(id) {
       try {
         const prev = rows.find((r) => r.is_current && r.id !== id);
-        if (prev) await Api.upsert('seasons', { id: prev.id, is_current: false });
-        await Api.upsert('seasons', { id, is_current: true });
+        // `update` لا `upsert`: الثانية تبني INSERT يتحقّق من NOT NULL على كل
+        // الأعمدة قبل الدمج، فحقلان فقط يُخفقان بشكوى من `code` الفارغ.
+        if (prev) await Api.update('seasons', prev.id, { is_current: false });
+        await Api.update('seasons', id, { is_current: true });
         C.toast('تغيّر الموسم الحالي');
         load();
       } catch (e) { C.toast(e.message || 'تعذّر التغيير', 'err'); }
