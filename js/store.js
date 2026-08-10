@@ -131,6 +131,11 @@ window.Store = (function () {
     return { id: l.id, unit: l.unit_id, code: l.code, order: l.sort_order,
              title: l.title_ar, minutes: l.est_minutes, page: null,
              video: l.video_id || null, free: l.is_free, published: l.is_published,
+             /* وضع العرض يُنقل إلى الحالة المحلّية ليُعرف **تزامنيًّا**.
+                بدونه كان محرّر الدرس يرسم «نص» أوّلًا ثم يصحّحها بعد جولتَي
+                شبكة (REST ثم دالّة Edge قد تكون باردة). فيحفظ المحرِّر، ينظر،
+                يرى «نص»، ويستنتج أن اختياره لم يُحفظ — وهو محفوظ في القاعدة. */
+             mode: l.body_mode || 'text',
              body: l.body_html || '' };
   }
   /** الأقسام الأربعة التي يتصفّح الطالب تمارينه عبرها — راجع هجرة 20260802000400. */

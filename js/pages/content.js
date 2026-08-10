@@ -171,9 +171,16 @@ window.Pages = window.Pages || {};
           render(vid);
         };
 
+        /* بنفس شكل صفّ الملفّات: عنوانٌ ومعلوماتٌ وأزرارٌ في سطرٍ مفصول.
+           الفيديو والملفّات شيئان من نوعٍ واحد في ذهن المحرِّر — «ما أرفقتُه
+           بالدرس» — فاختلاف شكلهما يجعله يبحث عن زرّ الحذف في أحدهما لأنه
+           رآه في الآخر. */
         const render = (v) => box.replaceChildren(
           v
-            ? h('div.row', { style: 'gap:10px;flex-wrap:wrap;align-items:center' },
+            ? h('div.row', {
+                style: 'gap:10px;align-items:center;flex-wrap:wrap;'
+                     + 'padding:8px 0;border-top:1px solid var(--brd)',
+              },
                 h('span.badge.badge--ok', 'مربوط'),
                 h('div.grow', h('div.small', { style: 'font-weight:600' }, v.title),
                   h('div.faint.small',
@@ -212,9 +219,14 @@ window.Pages = window.Pages || {};
                       } catch (e) { C.toast(e.message || 'تعذّر الحذف', 'err'); }
                     }, 'حذف نهائي'),
                 }, 'حذف'))
+            /* «جارٍ القراءة» لا «بلا فيديو» حين نعرف من الحالة المحلّية أن
+               للدرس فيديو: إعلانُ الغياب قبل السؤال يجعل المحرِّر يرفع نسخةً
+               ثانية لفيديو موجود. */
             : h('div.row', { style: 'gap:10px;align-items:center' },
-                h('span.badge.badge--warn', 'بلا فيديو'),
-                h('button.btn.btn--primary.btn--sm', {
+                l.video
+                  ? h('span.faint.small', 'جارٍ قراءة الفيديو…')
+                  : h('span.badge.badge--warn', 'بلا فيديو'),
+                !l.video && h('button.btn.btn--primary.btn--sm', {
                   onclick: () => C.videoUploader({
                     lessonId: l.id, lessonTitle: l.title, onDone: refresh }),
                 }, '⬆ رفع فيديو لهذا الدرس')),
@@ -225,13 +237,11 @@ window.Pages = window.Pages || {};
         return box;
       }
 
-      /* شرح الدرس: PDF مصمَّم بدل نصّ HTML.
-         الدرس بلا شرحٍ مرفوع يعرض `body_html` القديم — فالشارة هنا «نصّ» لا
-         «ناقص»: الدرس يعمل، والانتقال يجري درسًا درسًا. */
       /* --- ملفّات الدرس ---------------------------------------------------
          أكثر من ملفّ للدرس الواحد: شرحٌ وورقةُ تمارين ومُلحق. والمفتاح أعلاها
-         يقرّر ما يراه الطالب — النصّ المكتوب أو هذه الملفّات. */
-      /* الأوضاع الثلاثة. «الاثنان معًا» أُضيف لأن الخيارين لا يستبعد أحدهما
+         يقرّر ما يراه الطالب — النصّ المكتوب أو هذه الملفّات أو كلاهما.
+
+         الأوضاع الثلاثة. «الاثنان معًا» أُضيف لأن الخيارين لا يستبعد أحدهما
          الآخر في الواقع: شرحٌ مكتوب يقرؤه الطالب فورًا، وملفٌّ مصمَّم يفتحه
          للمراجعة أو الطباعة. وإجبارُ المحرِّر على اختيار أحدهما يعني أن يحذف
          عملًا أنجزه. */
@@ -243,7 +253,11 @@ window.Pages = window.Pages || {};
 
       function docRow() {
         const box = h('div');
-        let mode = 'text';
+        /* من الحالة المحلّية **تزامنيًّا** لا بعد جولة شبكة.
+           كان يبدأ دائمًا بـ'text' ثم يُصحَّح بعد جولتين (REST ثم دالّة Edge قد
+           تكون باردة). فيحفظ المحرِّر، ينظر فورًا، يرى «نص»، ويستنتج أن اختياره
+           لم يُحفظ — وهو محفوظ في القاعدة طوال الوقت. */
+        let mode = l.mode || 'text';
         let docs = [];
 
         const refresh = async () => {
@@ -254,6 +268,7 @@ window.Pages = window.Pages || {};
             const [row] = await Api.from('lessons', { select: 'body_mode', id: `eq.${l.id}` });
             mode = MODES.some(([k]) => k === row?.body_mode) ? row.body_mode : 'text';
           } catch { /* يبقى ما قرأناه سابقًا */ }
+          render();          // الوضع أوّلًا: لا ينتظر دالّةً قد تكون باردة
           try {
             const res = await Api.invoke('admin-doc', { action: 'list', lesson_id: l.id });
             docs = res.docs || [];
@@ -290,10 +305,11 @@ window.Pages = window.Pages || {};
 
         const switcher = () => h('div.row', { style: 'gap:6px;margin-bottom:10px;flex-wrap:wrap' },
           ...MODES.map(([key, label]) =>
+            /* لا `disabled`: زرٌّ معطَّل لا يقول **لماذا**. كان المحرِّر يضغطه
+               فلا يقع شيء فيستنتج أن الحفظ معطوب — بينما السبب أنه لم يرفع
+               ملفًّا بعد. النقر مسموح والرسالة تشرح. */
             h('button.btn.btn--sm' + (mode === key ? '.btn--primary' : '.btn--sec'), {
               onclick: () => setMode(key),
-              // وضعٌ يعرض ملفّات بلا ملفّ يعني شاشةً فارغة للطالب — نمنعه لا نصلحه بعده
-              disabled: key !== 'text' && !docs.length,
             }, label)),
           h('span.faint.small', { style: 'align-self:center' },
             MODES.find(([k]) => k === mode)?.[2] || ''));
