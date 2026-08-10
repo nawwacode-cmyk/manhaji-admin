@@ -402,6 +402,38 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
     }
     ok('لا upsert جزئي (استعمل update للتعديل الجزئي)', bad.length === 0, bad.join(' · '));
   }
+
+  /* =========================================================================
+     الحذف حذفٌ حقيقي لا ناعم
+
+     قرارٌ صريح: أي «حذف» في اللوحة يمحو الصفّ من القاعدة فعلًا. لا عمود
+     `deleted_at` ولا `is_deleted` ولا إخفاءٌ يُسمّى حذفًا — سجلٌّ يبدو محذوفًا
+     وهو باقٍ يُنتج قوائم لا تطابق الواقع، وأسوأ منه أنه يوهم المحرِّر بأنه
+     تخلّص من محتوًى وهو ما زال قابلًا للوصول.
+
+     وملفّات R2 كانت تبقى عمدًا («تنظيفٌ يدوي واعٍ»)، والنتيجة أنها لم تُنظَّف
+     قطّ: فيديوهات بمئات الميغابايت لا يصل إليها شيء ويُدفع ثمن تخزينها.
+     ========================================================================= */
+  {
+    const soft = [];
+    const files = fs.readdirSync(dir + 'pages').filter((f) => f.endsWith('.js'));
+    for (const f of files) {
+      const src = fs.readFileSync(dir + 'pages/' + f, 'utf8');
+      // «حذف» في نصّ زرّ أو حوار، ومعه تحديثُ علمٍ بدل حذفٍ فعلي
+      if (/deleted_at|is_deleted|archived_at/.test(src)) soft.push(f);
+    }
+    ok('لا حذف ناعم في أي صفحة', soft.length === 0, soft.join(' · '));
+
+    const content = fs.readFileSync(dir + 'pages/content.js', 'utf8');
+    ok('حذف ملفّ الدرس يمرّ بـadmin-doc/remove',
+       /action: 'remove'[\s\S]{0,40}\}\)/.test(content) && /admin-doc'/.test(content));
+    ok('وحذف فيديو الدرس موجود أصلًا',
+       /admin-video'[\s\S]{0,80}action: 'remove'/.test(content));
+    // رسالةٌ تُخفي أن الحذف نهائي تجعل المحرِّر يضغط بلا تفكير
+    ok('ورسالة الحذف تقول إنه نهائي',
+       (content.match(/لا يمكن التراجع/g) || []).length >= 2,
+       String((content.match(/لا يمكن التراجع/g) || []).length));
+  }
   corrupt.forEach((f) => console.log('   ← ترميز تالف: ' + f));
 
   console.log('\n' + (fail.length ? `${fail.length} فشل` : 'كل الاختبارات نجحت'));
