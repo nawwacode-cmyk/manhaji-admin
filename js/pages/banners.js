@@ -118,6 +118,26 @@ window.Pages = window.Pages || {};
       let active = b ? !!b.is_active : true;
       const activeBox = C.checkbox('مفعَّل', active, (v) => { active = v; });
 
+      /* --- حقول قسم «آخر الأخبار» -------------------------------------------
+         الجدول بُني بانرًا، وصار يخدم قسم أخبارٍ يُفتح قصدًا. أخطر ما كان
+         ينقصه تاريخُ النشر: خبرٌ بلا تاريخ لا يُعرف أجديدٌ هو أم من العام
+         الماضي.
+
+         و`published_at` **غير** `starts_at`: الأولى تاريخُ عرضٍ يقرؤه الطالب،
+         والثانية شرطُ وصولٍ تفرضه RLS. خلطُهما يعني أن تأجيل الظهور يكذب على
+         الطالب في تاريخ الخبر. */
+      const body = C.textarea({ value: b?.body_ar || '', rows: 6,
+                                placeholder: 'نصّ الخبر كاملًا — يظهر عند فتح الخبر.' });
+      const pubAt = C.input({ type: 'datetime-local',
+                              value: toLocalInput(b?.published_at) || toLocalInput(new Date().toISOString()) });
+      const catSel = C.select([['announcement', 'إعلان'], ['content', 'محتوى جديد'],
+                               ['update', 'تحديث']], b?.category || 'announcement');
+
+      let pinned = b ? !!b.pinned : false;
+      const pinBox = C.checkbox('مثبَّت في أعلى القسم', pinned, (v) => { pinned = v; });
+      let onHome = b ? b.show_on_home !== false : true;
+      const homeBox = C.checkbox('يظهر في مقتطف الرئيسية', onHome, (v) => { onHome = v; });
+
       const targetVal = C.input({ value: b?.target_value || '', dir: 'ltr' });
       const valField = h('div');
       const targetSel = C.select(TARGETS, b?.target_type || 'none');
@@ -181,6 +201,12 @@ window.Pages = window.Pages || {};
 
           C.field('العنوان', title),
           C.field('الوصف', sub, 'سطر صغير تحت العنوان. اتركه فارغًا إن لم يلزم.'),
+          C.field('نصّ الخبر', body,
+            'اختياري. بلا نصّ يعرض الخبر عنوانه ووصفه فقط.'),
+          h('div.grid.grid--2',
+            C.field('التصنيف', catSel, 'يُنتج شرائح التصفية في التطبيق.'),
+            C.field('تاريخ النشر', pubAt,
+              'هذا ما يقرؤه الطالب («منذ ٣ ساعات») — غير «يبدأ» أدناه.')),
           C.field('عند النقر', targetSel),
           valField,
           h('div.grid.grid--2',
@@ -188,9 +214,13 @@ window.Pages = window.Pages || {};
             C.field('ينتهي', to, 'اتركه فارغًا ليبقى بلا انتهاء.')),
           C.field('الترتيب', order),
           h('div.field', activeBox),
+          h('div.field', pinBox),
+          h('div.field', homeBox),
           h('div.help',
             'الجدولة يفرضها السيرفر: خارج هذه النافذة لا يصل البانر لجهاز الطالب أصلًا، '
-            + 'فلا حاجة لتذكّر إخفائه يدويًا.'),
+            + 'فلا حاجة لتذكّر إخفائه يدويًا. '
+            + 'و«تاريخ النشر» تاريخُ عرضٍ فقط: تأجيل الظهور يكون بـ«يبدأ» لا به — '
+            + 'وإلّا كذب التطبيق على الطالب في عمر الخبر.'),
         ),
         actions: [
           { label: 'إلغاء', onClick: (c) => c() },
@@ -225,6 +255,12 @@ window.Pages = window.Pages || {};
                 starts_at: s, ends_at: e,
                 is_active: active,
                 sort_order: Number(order.value) || 0,
+                // حقول قسم «آخر الأخبار»
+                body_ar: body.value.trim() || null,
+                category: catSel.value,
+                published_at: fromLocalInput(pubAt.value) || new Date().toISOString(),
+                pinned,
+                show_on_home: onHome,
               });
               close();
               C.toast(isNew ? 'أُضيف البانر' : 'حُفظت التعديلات');
