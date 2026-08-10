@@ -130,8 +130,15 @@ window.Pages = window.Pages || {};
                                 placeholder: 'نصّ الخبر كاملًا — يظهر عند فتح الخبر.' });
       const pubAt = C.input({ type: 'datetime-local',
                               value: toLocalInput(b?.published_at) || toLocalInput(new Date().toISOString()) });
-      const catSel = C.select([['announcement', 'إعلان'], ['content', 'محتوى جديد'],
-                               ['update', 'تحديث']], b?.category || 'announcement');
+      /* التصنيفات بأسماء يفهمها القارئ. و`content` القديم رُحِّل إلى `news`
+         في الهجرة — بانرٌ بقيمةٍ خارج القيد يمنع أي تعديل لاحق على الجدول. */
+      const catSel = C.select([['update', 'تحديثات التطبيق'], ['announcement', 'إعلانات'],
+                               ['news', 'أخبار']], b?.category || 'announcement');
+
+      // المصدر والرابط اختياريان: خبرٌ منقول بلا مصدر ادّعاء، والرابط يفتح خارج التطبيق
+      const source = C.input({ value: b?.source || '', placeholder: 'مثال: وزارة التربية' });
+      const link   = C.input({ value: b?.link_url || '', dir: 'ltr',
+                               placeholder: 'https://…' });
 
       let pinned = b ? !!b.pinned : false;
       const pinBox = C.checkbox('مثبَّت في أعلى القسم', pinned, (v) => { pinned = v; });
@@ -162,21 +169,48 @@ window.Pages = window.Pages || {};
       targetSel.addEventListener('change', drawTarget);
       drawTarget();
 
-      let imagePath = b?.image_path || null;
-      let picked = null;
-      const preview = h('div', { style: 'width:180px;height:100px;border-radius:12px;overflow:hidden;'
-        + 'background:var(--acc-soft);display:grid;place-items:center;flex:none' });
-      const drawPreview = (src) => preview.replaceChildren(src
-        ? h('img', { src, alt: '', style: 'width:100%;height:100%;object-fit:cover' })
-        : h('span.faint.small', 'بلا صورة'));
-      drawPreview(Api.publicUrl(imagePath));
+      /* --- صورٌ متعدّدة ------------------------------------------------------
+         كل عنصر إمّا مسارٌ محفوظ (`path`) أو ملفٌّ مُختار لم يُرفع بعد (`file`).
+         الرفع يقع عند الحفظ لا عند الاختيار: من يختار صورًا ثم يُلغي النافذة
+         يترك خلفه ملفّاتٍ في التخزين لا يشير إليها شيء. */
+      let media = (b?.image_paths?.length ? b.image_paths : (b?.image_path ? [b.image_path] : []))
+        .map((path) => ({ path }));
+      const wasPaths = media.map((m) => m.path);
 
-      const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/avif',
+      const strip = h('div.row', { style: 'gap:8px;flex-wrap:wrap;align-items:flex-start' });
+      const file = h('input', { type: 'file', multiple: true,
+                                accept: 'image/png,image/jpeg,image/webp,image/avif',
                                 style: 'display:none' });
+
+      const thumb = (m, i) => {
+        const src = m.path ? Api.publicUrl(m.path) : URL.createObjectURL(m.file);
+        return h('div', { style: 'position:relative;width:118px;height:70px;border-radius:10px;'
+          + 'overflow:hidden;background:var(--acc-soft);flex:none' },
+          h('img', { src, alt: '', style: 'width:100%;height:100%;object-fit:cover' }),
+          // الأولى هي التي تظهر في القائمة والمقتطف — يُقال ذلك لا يُترك للتخمين
+          i === 0 ? h('span.badge.badge--acc', { style: 'position:absolute;top:4px;'
+            + 'inset-inline-start:4px;font-size:9px' }, 'الغلاف') : null,
+          h('button.btn.btn--ghost.btn--sm', {
+            style: 'position:absolute;top:2px;inset-inline-end:2px;color:var(--err);'
+                 + 'background:var(--surface);border-radius:8px;padding:2px 7px',
+            onclick: () => { media.splice(i, 1); drawStrip(); },
+          }, '✕'));
+      };
+
+      function drawStrip() {
+        strip.replaceChildren(...[
+          ...media.map(thumb),
+          h('button.btn.btn--sec.btn--sm', { style: 'height:70px', onclick: () => file.click() },
+            media.length ? '+ صورة' : '＋ اختر صورًا'),
+        ].filter(Boolean));
+      }
+
       file.addEventListener('change', () => {
-        const f = file.files[0]; if (!f) return;
-        picked = f; drawPreview(URL.createObjectURL(f));
+        for (const f of [...file.files]) media.push({ file: f });
+        file.value = '';              // اختيار الملفّ نفسه مرّتين يجب أن يعمل
+        drawStrip();
       });
+      drawStrip();
 
       const err = h('div');
       const fail = (m) => err.replaceChildren(h('div.badge.badge--err', { style: 'margin-bottom:12px' }, m));
@@ -186,18 +220,13 @@ window.Pages = window.Pages || {};
         wide: true,
         body: h('div',
           err,
-          h('div.row', { style: 'gap:16px;align-items:flex-start;margin-bottom:16px' },
-            preview,
-            h('div',
-              h('button.btn.btn--sec.btn--sm', { onclick: () => file.click() },
-                imagePath || picked ? 'تبديل الصورة' : 'اختر صورة'),
-              imagePath && h('button.btn.btn--ghost.btn--sm', {
-                style: 'margin-inline-start:6px;color:var(--err)',
-                onclick: () => { imagePath = null; picked = null; drawPreview(null); },
-              }, 'إزالة'),
-              h('div.help', { style: 'margin-top:6px' },
-                'عريضة يُفضَّل (نحو ٢:١) · حتى ٥ م.ب. بلا صورة يُعرض تدرّج لوني.'),
-              file)),
+          h('div.field', { style: 'margin-bottom:16px' },
+            h('label', 'الصور'),
+            strip, file,
+            h('div.help', { style: 'margin-top:8px' },
+              'عريضة يُفضَّل (نحو ٢:١) · حتى ٥ م.ب لكل صورة. الأولى هي الغلاف: '
+              + 'هي التي تظهر في القائمة ومقتطف الرئيسية، والبقية تُعرض معرضًا '
+              + 'يُسحب داخل الخبر. بلا صورة يُعرض تدرّج لوني.')),
 
           C.field('العنوان', title),
           C.field('الوصف', sub, 'سطر صغير تحت العنوان. اتركه فارغًا إن لم يلزم.'),
@@ -207,6 +236,13 @@ window.Pages = window.Pages || {};
             C.field('التصنيف', catSel, 'يُنتج شرائح التصفية في التطبيق.'),
             C.field('تاريخ النشر', pubAt,
               'هذا ما يقرؤه الطالب («منذ ٣ ساعات») — غير «يبدأ» أدناه.')),
+
+          h('div.grid.grid--2',
+            C.field('المصدر (اختياري)', source,
+              'يظهر سطرًا داخل الخبر. خبرٌ منقول بلا مصدر ادّعاء.'),
+            C.field('رابط (اختياري)', link,
+              'زرّ «فتح الرابط» داخل الخبر — يفتح خارج التطبيق.')),
+
           C.field('عند النقر', targetSel),
           valField,
           h('div.grid.grid--2',
@@ -236,20 +272,33 @@ window.Pages = window.Pages || {};
             const e = fromLocalInput(to.value);
             if (s && e && Date.parse(e) <= Date.parse(s)) return fail('تاريخ الانتهاء يجب أن يلي تاريخ البدء.');
 
+            const src = source.value.trim();
+            const lnk = link.value.trim();
+            if (lnk && !/^https?:\/\//i.test(lnk)) {
+              return fail('الرابط يجب أن يبدأ بـ http:// أو https://');
+            }
+
             try {
-              let path = imagePath;
-              if (picked) {
-                path = await Api.uploadImage(picked, 'banners');
-                if (b?.image_path && b.image_path !== path) await Api.deleteImage(b.image_path);
-              } else if (b?.image_path && !imagePath) {
-                await Api.deleteImage(b.image_path);
+              /* الرفع عند الحفظ لا عند الاختيار: من يختار صورًا ثم يُلغي
+                 النافذة يترك ملفّاتٍ في التخزين لا يشير إليها شيء. */
+              const paths = [];
+              for (const m of media) {
+                paths.push(m.path || await Api.uploadImage(m.file, 'banners'));
+              }
+              // ما أُزيل من المحرّر يُحذف من التخزين — وإلّا تراكمت صورٌ يتيمة
+              for (const old of wasPaths) {
+                if (!paths.includes(old)) await Api.deleteImage(old).catch(() => {});
               }
 
               await Api.upsert('banners', {
                 id: b?.id || Store.newId(),
                 title_ar: t,
                 subtitle_ar: sub.value.trim() || null,
-                image_path: path,
+                image_paths: paths,
+                // العمود المهجور يبقى محتويًا الغلاف: أجهزة لم تُحدَّث بعد تقرؤه
+                image_path: paths[0] || null,
+                source: src || null,
+                link_url: lnk || null,
                 target_type: type,
                 target_value: type === 'none' ? null : val,
                 starts_at: s, ends_at: e,
