@@ -231,15 +231,30 @@ window.Pages = window.Pages || {};
       /* --- ملفّات الدرس ---------------------------------------------------
          أكثر من ملفّ للدرس الواحد: شرحٌ وورقةُ تمارين ومُلحق. والمفتاح أعلاها
          يقرّر ما يراه الطالب — النصّ المكتوب أو هذه الملفّات. */
+      /* الأوضاع الثلاثة. «الاثنان معًا» أُضيف لأن الخيارين لا يستبعد أحدهما
+         الآخر في الواقع: شرحٌ مكتوب يقرؤه الطالب فورًا، وملفٌّ مصمَّم يفتحه
+         للمراجعة أو الطباعة. وإجبارُ المحرِّر على اختيار أحدهما يعني أن يحذف
+         عملًا أنجزه. */
+      const MODES = [
+        ['text', 'نص الدرس',      'الطالب يرى النصّ المكتوب'],
+        ['pdf',  'ملفّات الدرس',   'الطالب يرى الملفّات'],
+        ['both', 'الاثنان معًا',   'الطالب يرى النصّ ثم الملفّات تحته'],
+      ];
+
       function docRow() {
         const box = h('div');
         let mode = 'text';
         let docs = [];
 
         const refresh = async () => {
+          /* محاولتان منفصلتان لا `try` واحدة: فشلُ سرد الملفّات كان يُسقط
+             قراءة الوضع معه فيعود المفتاح إلى «نص» — يظنّ المحرِّر أن اختياره
+             ضاع وهو محفوظ في القاعدة. */
           try {
             const [row] = await Api.from('lessons', { select: 'body_mode', id: `eq.${l.id}` });
-            mode = row?.body_mode === 'pdf' ? 'pdf' : 'text';
+            mode = MODES.some(([k]) => k === row?.body_mode) ? row.body_mode : 'text';
+          } catch { /* يبقى ما قرأناه سابقًا */ }
+          try {
             const res = await Api.invoke('admin-doc', { action: 'list', lesson_id: l.id });
             docs = res.docs || [];
           } catch { docs = []; }
@@ -251,11 +266,11 @@ window.Pages = window.Pages || {};
            الملفّات ومراجعتها قبل أن يقرّر عرضها. */
         const setMode = async (next) => {
           if (next === mode) return;
-          if (next === 'pdf' && !docs.length) return C.toast('ارفع ملفًّا أوّلًا', 'err');
+          if (next !== 'text' && !docs.length) return C.toast('ارفع ملفًّا أوّلًا', 'err');
           try {
             await Api.update('lessons', l.id, { body_mode: next });
             mode = next;
-            C.toast(next === 'pdf' ? 'الطالب يرى ملفّات الدرس' : 'الطالب يرى نصّ الدرس');
+            C.toast('حُفظ اختيار العرض');
             render();
           } catch (e) { C.toast(e.message || 'تعذّر التبديل', 'err'); }
         };
@@ -274,14 +289,14 @@ window.Pages = window.Pages || {};
           }, 'حذف نهائي');
 
         const switcher = () => h('div.row', { style: 'gap:6px;margin-bottom:10px;flex-wrap:wrap' },
-          ...[['text', 'نص الدرس'], ['pdf', 'ملفّات الدرس']].map(([key, label]) =>
+          ...MODES.map(([key, label]) =>
             h('button.btn.btn--sm' + (mode === key ? '.btn--primary' : '.btn--sec'), {
               onclick: () => setMode(key),
-              // وضعُ الملفّات بلا ملفّ يعني شاشةً فارغة للطالب — نمنعه لا نصلحه بعده
-              disabled: key === 'pdf' && !docs.length,
+              // وضعٌ يعرض ملفّات بلا ملفّ يعني شاشةً فارغة للطالب — نمنعه لا نصلحه بعده
+              disabled: key !== 'text' && !docs.length,
             }, label)),
           h('span.faint.small', { style: 'align-self:center' },
-            mode === 'pdf' ? 'الطالب يرى الملفّات' : 'الطالب يرى النصّ المكتوب'));
+            MODES.find(([k]) => k === mode)?.[2] || ''));
 
         const row = (d) => h('div.row', {
           style: 'gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--brd)',
@@ -303,7 +318,11 @@ window.Pages = window.Pages || {};
             docs.length ? h('span') : h('span.badge.badge--mute', 'لا ملفّات بعد'),
             h('button.btn.btn--sec.btn--sm', {
               onclick: () => C.docUploader({
-                lessonId: l.id, lessonTitle: l.title, onDone: refresh }),
+                lessonId: l.id, lessonTitle: l.title, bodyMode: mode,
+                /* نصٌّ فعليّ لا وسمٌ فارغ: محرّر contenteditable يترك `<br>`
+                   أو `<p></p>` بعد المسح، فطولُ `innerHTML` وحده يكذب. */
+                hasText: (area.innerHTML || '').replace(/<[^>]*>|&nbsp;|\s/g, '').length > 0,
+                onDone: refresh }),
             }, docs.length ? '+ أضف ملفًّا آخر' : '⬆ رفع ملفّ')),
         );
 

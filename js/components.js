@@ -366,7 +366,7 @@ window.C = (function () {
      يُنسى أو يُخطأ. القراءة تتمّ بترويسة PDF المصغَّرة بلا مكتبة — اللوحة
      ليست بحاجة لتحميل ١٫٤ م.ب لأجل رقم.
   --------------------------------------------------------------------------- */
-  function docUploader({ lessonId = null, lessonTitle = '', onDone } = {}) {
+  function docUploader({ lessonId = null, lessonTitle = '', bodyMode = 'text', hasText = false, onDone } = {}) {
     const mb = (b) => Math.round((b || 0) / 1048576 * 10) / 10;
 
     const fTitle = input({ placeholder: lessonTitle || 'مثال: الوحدة ١ — التحيات' });
@@ -484,17 +484,28 @@ window.C = (function () {
         // التسجيل بعد نجاح الرفع لا قبله — وإلّا بقي في المكتبة ملفٌّ لا وجود
         // له في R2، يُربط بدرس فيرى الطالب عارضًا فارغًا.
         label.textContent = 'جارٍ التسجيل…';
+        /* `lesson_id` يُرسل مع التسجيل — وهذا ما كان ناقصًا.
+           كان الملفّ يُسجَّل بلا درس ثم يُربط بكتابة `lessons.doc_id`، وهو
+           العمود **المهجور** بعد أن صار الربط في `lesson_docs.lesson_id`.
+           فكل ملفٍّ جديد يولد يتيمًا: يظهر في سجلّ النشاط مرفوعًا ولا تراه
+           قائمة الدرس أبدًا — وهو بعينه «لا أستطيع رفع أكثر من ملفّ». */
         const res = await Api.invoke('admin-doc', {
-          action: 'commit', r2_key: sign.r2_key,
+          action: 'commit', r2_key: sign.r2_key, lesson_id: lessonId || null,
           title: fTitle.value.trim(), pages, size_bytes: file.size,
         });
 
-        /* الرفع يبدّل العرض إلى الملفّ: من يرفع شرحًا يريد عرضه في الغالب،
-           وتركُه غير معروض يجعل المحرِّر يظنّ الرفع فاشلًا. والمفتاح في
-           محرّر الدرس يعيده إلى النصّ بضغطة إن أراد التأجيل. */
-        if (lessonId) await Api.update('lessons', lessonId, { doc_id: res.doc.id, body_mode: 'pdf' });
+        /* الربط تمّ في `commit` أعلاه. ما يبقى هنا قرار العرض وحده:
 
-        toast('رُفع الشرح');
+           أوّلُ ملفٍّ يُرفع لدرسٍ نصّي ينقله إلى «الاثنان معًا» لا إلى
+           «الملفّات» — فلا يختفي نصٌّ كتبه المحرِّر بلا أن يطلب ذلك. ودرسٌ
+           بلا نصّ يصير «ملفّات». وما كان وضعه مضبوطًا سلفًا لا يُلمس:
+           إضافةُ ملفٍّ ثانٍ ليست قرار عرضٍ جديدًا. */
+        if (lessonId && bodyMode === 'text') {
+          await Api.update('lessons', lessonId,
+            { body_mode: hasText ? 'both' : 'pdf' });
+        }
+
+        toast('رُفع الملفّ');
         close();
         onDone?.(res.doc);
       } catch (e) {

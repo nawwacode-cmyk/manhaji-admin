@@ -433,6 +433,27 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
     ok('ورسالة الحذف تقول إنه نهائي',
        (content.match(/لا يمكن التراجع/g) || []).length >= 2,
        String((content.match(/لا يمكن التراجع/g) || []).length));
+
+    /* --- الرفع يربط الملفّ بدرسه -------------------------------------------
+       أخطر عطلٍ وقع في هذا المسار وأصعبه اكتشافًا: التسجيل كان بلا
+       `lesson_id`، والربط يُكتب في `lessons.doc_id` — العمود **المهجور** بعد
+       أن صار الربط في `lesson_docs.lesson_id`. فكل ملفٍّ جديد يولد يتيمًا:
+       يظهر في سجلّ النشاط مرفوعًا بنجاح، ولا تراه قائمة الدرس أبدًا.
+       لا شيء يُخطئ ولا رسالة تظهر — يبدو ببساطة أن الرفع «لا يعمل». */
+    const comp = fs.readFileSync(dir + 'components.js', 'utf8');
+    /* مقيَّدٌ بمقطع `docUploader` وحده: `videoUploader` فوقه له `commit` أيضًا
+       بلا `lesson_id` — وهو صحيح، فالفيديو يُربط بعمود في `lessons`. تعبيرٌ
+       غير مقيَّد يلتقط الأوّل ويسقط على شيفرة سليمة. */
+    const up = comp.slice(comp.indexOf('function docUploader'));
+    const commit = (up.match(/action: 'commit'[\s\S]{0,200}?\}\);/) || [''])[0];
+    ok('تسجيل الملفّ يربطه بدرسه', /lesson_id/.test(commit), commit.slice(0, 70));
+    // `doc_id:` لا `doc_id` وحدها — الكلمة ترد في التعليق الذي يشرح هجرها
+    ok('ولا يُكتب العمود المهجور doc_id', !/doc_id\s*:/.test(comp));
+
+    // الأوضاع الثلاثة موجودة، ولا يُعرض وضعٌ يطلب ملفّات بلا ملفّ
+    ok('أوضاع العرض ثلاثة', /'both'/.test(content) && /'pdf'/.test(content) && /'text'/.test(content));
+    ok('ووضعٌ يطلب ملفّات معطَّل بلا ملفّ',
+       /disabled: key !== 'text' && !docs\.length/.test(content));
   }
   corrupt.forEach((f) => console.log('   ← ترميز تالف: ' + f));
 
