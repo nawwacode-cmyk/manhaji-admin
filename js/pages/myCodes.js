@@ -38,7 +38,8 @@ window.Pages = window.Pages || {};
         // والباقات كذلك. أمّا الأكواد فعبر الدالّة وحدها.
         const [s, pk] = await Promise.all([
           Api.from('seasons', { select: 'id,title,ends_at,is_current', order: 'starts_at.desc' }),
-          Api.from('packages', { select: 'code,title', is_active: 'eq.true', order: 'sort_order.asc' }),
+          // `eq` لا `is_active:` — وإلّا جُلبت الباقات المعطَّلة معها
+          Api.from('packages', { select: 'code,title', eq: { is_active: true }, order: 'sort_order.asc' }),
         ]);
         seasons = s || []; packages = pk || [];
       } catch (e) { loadErr = e.message || 'تعذّر تحميل البيانات المرجعية.'; }

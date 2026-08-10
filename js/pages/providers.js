@@ -91,7 +91,9 @@ window.Pages = window.Pages || {};
       let people = [];
       try {
         people = await Api.from('profiles',
-          { select: 'id,full_name,username,role', role: 'eq.provider', order: 'created_at.desc' });
+          // `eq` لا `role:` — المفتاح الأخير مُهمَل، فكانت الصفحة تسرد **كل**
+          // الحسابات (مديرين وأساتذة وطلابًا) لا المزوّدين وحدهم.
+          { select: 'id,full_name,username,role', eq: { role: 'provider' }, order: 'created_at.desc' });
       } catch (e) { return C.toast(e.message || 'تعذّر جلب الحسابات', 'err'); }
 
       if (!people.length) {

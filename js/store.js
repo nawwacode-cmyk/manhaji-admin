@@ -443,7 +443,12 @@ window.Store = (function () {
     await Api.upsert('lessons', dbRow);
 
     set((s) => {
-      const mapped = fromDbLesson(dbRow);
+      /* `dbRow` لا يحمل `body_mode` (ولا يجب أن يحمله — الحفظ لا يغيّر وضع
+         العرض). لكن `fromDbLesson` تشتقّ الحالة المحلّية منه وحده، فكانت
+         تُرجع `mode: 'text'` بعد كل حفظ وتدهس اختيار المحرِّر في الذاكرة —
+         فيرى «نص» فورًا ويظنّ أن اختياره ضاع، وهو سليمٌ في القاعدة. */
+      const prev = s.lessons.find((l) => l.id === row.id);
+      const mapped = { ...fromDbLesson(dbRow), mode: prev?.mode || 'text' };
       const list = isNew ? [...s.lessons, mapped] : s.lessons.map((l) => (l.id === row.id ? mapped : l));
       return { lessons: list };
     });

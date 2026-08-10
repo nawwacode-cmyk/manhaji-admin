@@ -155,19 +155,24 @@ window.Pages = window.Pages || {};
          السؤال الوحيد: هل لهذا الدرس فيديو؟ */
       function videoRow() {
         const box = h('div');
+        let loaded = false;        // انتهت أوّل قراءة؟ — كي لا تعلق «جارٍ القراءة»
         const refresh = async () => {
           // نقرأ من القاعدة لا من الحالة المحلّية: الرفع يكتب `video_id`
           // مباشرةً، والحالة هنا قد تكون أقدم منه.
           let vid = null;
+          /* `eq: { id }` لا `id:` — و`Api.from` **تتجاهل** أي مفتاح آخر بصمت.
+             فكان الاستعلام يجلب الجدول كلّه ويأخذ **أوّل صفٍّ فيه** لا صفّ
+             هذا الدرس: يقرأ فيديو درسٍ آخر (أو لا شيء) مهما فتحتَ من دروس. */
           try {
             const [row] = await Api.from('lessons',
-              { select: 'video_id', id: `eq.${l.id}` });
+              { select: 'video_id', eq: { id: l.id } });
             if (row?.video_id) {
               const [v] = await Api.from('videos',
-                { select: 'id,title,duration_s,size_bytes,quality', id: `eq.${row.video_id}` });
+                { select: 'id,title,duration_s,size_bytes,quality', eq: { id: row.video_id } });
               vid = v || null;
             }
           } catch { /* العرض أدناه يتصرّف كأنه بلا فيديو */ }
+          loaded = true;           // انتهت المحاولة — نجحت أو لم تنجح
           render(vid);
         };
 
@@ -219,14 +224,15 @@ window.Pages = window.Pages || {};
                       } catch (e) { C.toast(e.message || 'تعذّر الحذف', 'err'); }
                     }, 'حذف نهائي'),
                 }, 'حذف'))
-            /* «جارٍ القراءة» لا «بلا فيديو» حين نعرف من الحالة المحلّية أن
-               للدرس فيديو: إعلانُ الغياب قبل السؤال يجعل المحرِّر يرفع نسخةً
-               ثانية لفيديو موجود. */
+            /* «جارٍ القراءة» **قبل** أوّل قراءة فقط. كانت مشروطة بـ`l.video`
+               وحدها، فإن تعذّرت القراءة بقيت معلَّقة إلى الأبد ولا زرّ رفعٍ
+               معها — شاشةٌ لا مخرج منها. الآن تنتهي حتمًا: إمّا الفيديو، وإمّا
+               «بلا فيديو» ومعها زرّ الرفع. */
             : h('div.row', { style: 'gap:10px;align-items:center' },
-                l.video
+                !loaded && l.video
                   ? h('span.faint.small', 'جارٍ قراءة الفيديو…')
                   : h('span.badge.badge--warn', 'بلا فيديو'),
-                !l.video && h('button.btn.btn--primary.btn--sm', {
+                (loaded || !l.video) && h('button.btn.btn--primary.btn--sm', {
                   onclick: () => C.videoUploader({
                     lessonId: l.id, lessonTitle: l.title, onDone: refresh }),
                 }, '⬆ رفع فيديو لهذا الدرس')),
@@ -265,7 +271,10 @@ window.Pages = window.Pages || {};
              قراءة الوضع معه فيعود المفتاح إلى «نص» — يظنّ المحرِّر أن اختياره
              ضاع وهو محفوظ في القاعدة. */
           try {
-            const [row] = await Api.from('lessons', { select: 'body_mode', id: `eq.${l.id}` });
+            /* نفس الفخّ: `id:` مفتاحٌ مُهمَل، فكانت هذه تقرأ `body_mode` من
+               **أوّل درسٍ في الجدول** وتكتبه فوق وضع الدرس المفتوح — وهو
+               بعينه «أختار الملفّات وأحفظ فيعود إلى نص». */
+            const [row] = await Api.from('lessons', { select: 'body_mode', eq: { id: l.id } });
             mode = MODES.some(([k]) => k === row?.body_mode) ? row.body_mode : 'text';
           } catch { /* يبقى ما قرأناه سابقًا */ }
           render();          // الوضع أوّلًا: لا ينتظر دالّةً قد تكون باردة
@@ -285,6 +294,12 @@ window.Pages = window.Pages || {};
           try {
             await Api.update('lessons', l.id, { body_mode: next });
             mode = next;
+            /* الحالة المحلّية تُحدَّث معه: «حفظ الدرس» يعيد بناء المحرّر من
+               الذاكرة، فلو بقيت فيها القيمة القديمة عاد المفتاح إليها. */
+            Store.set((s) => ({
+              lessons: s.lessons.map((x) => (x.id === l.id ? { ...x, mode: next } : x)),
+            }));
+            l.mode = next;
             C.toast('حُفظ اختيار العرض');
             render();
           } catch (e) { C.toast(e.message || 'تعذّر التبديل', 'err'); }

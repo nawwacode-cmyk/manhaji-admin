@@ -38,7 +38,9 @@ window.Pages = window.Pages || {};
         const [p, s, pk] = await Promise.all([
           Api.rpc('admin_providers'),
           Api.rpc('admin_season_stats'),
-          Api.from('packages', { select: 'code,title,is_active', is_active: 'eq.true',
+          // `eq` لا `is_active:` — المفتاح الأخير يُهمَل بصمت فتُجلب الباقات
+          // المعطَّلة أيضًا وتظهر في قائمة الإصدار.
+          Api.from('packages', { select: 'code,title,is_active', eq: { is_active: true },
                                  order: 'sort_order.asc' }),
         ]);
         providers = p.rows || []; seasons = s.rows || []; packages = pk || [];

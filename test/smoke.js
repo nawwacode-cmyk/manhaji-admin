@@ -458,6 +458,44 @@ const ok = (n, c) => { console.log((c ? 'ok   ' : 'FAIL ') + n); if (!c) fail.pu
     ok('ووضعٌ يطلب ملفّات يُرفض بلا ملفّ مع تفسير',
        /if \(next !== 'text' && !docs\.length\)[\s\S]{0,60}ارفع ملفًّا أوّلًا/.test(content));
   }
+
+  /* =========================================================================
+     مرشِّح `Api.from` يمرّ عبر `eq` وحده
+
+     التوقيع `from(table, { select, order, eq, pageKey })` — وأي مفتاح آخر
+     **يُهمَل بصمت**. فنداءٌ مثل `from('lessons', { id: 'eq.x' })` لا يُخطئ
+     ولا يحذّر: يجلب الجدول كلّه ويعيد **أوّل صفٍّ فيه**.
+
+     كلّف هذا عطلين ظلّا يتكرّران: محرّر الدرس كان يقرأ فيديو **درسٍ آخر**،
+     ويقرأ `body_mode` من **أوّل درس في الجدول** ثم يكتبه فوق اختيار المحرِّر
+     — فيبدو أن «الملفّات» تعود إلى «نص» عند كل حفظ. لا خطأ في أي طبقة، ولا
+     شيء في السجلّ.
+     ========================================================================= */
+  {
+    const bad = [];
+    for (const f of fs.readdirSync(dir + 'pages').filter((x) => x.endsWith('.js'))) {
+      const src = fs.readFileSync(dir + 'pages/' + f, 'utf8');
+      /* الاقتطاع بعدّ الأقواس لا بتعبير نمطي: `eq: { id: x }` كائنٌ متداخل،
+         وأي تعبيرٍ يحاول موازنة الأقواس يقف عند أوّل `}` فيقطع الخيارات في
+         منتصفها — فيرى مفتاح `id` الداخلي المشروع ويُبلّغ عنه. وقد وقع. */
+      let i = -1;
+      while ((i = src.indexOf('Api.from(', i + 1)) !== -1) {
+        const open = src.indexOf('{', i);
+        if (open === -1 || open > src.indexOf(')', i) + 400) continue;
+        let depth = 0, end = open;
+        for (; end < src.length; end++) {
+          if (src[end] === '{') depth++;
+          else if (src[end] === '}' && --depth === 0) break;
+        }
+        // المستوى الأعلى وحده: تُنزع الكائنات الداخلية بالكامل
+        const opts = src.slice(open + 1, end).replace(/\{[^{}]*\}/g, '');
+        const keys = [...opts.matchAll(/(^|[,\s])([a-zA-Z_]+)\s*:/g)].map((k) => k[2]);
+        const unknown = keys.filter((k) => !['select', 'order', 'eq', 'pageKey'].includes(k));
+        if (unknown.length) bad.push(`${f} → ${unknown.join(',')}`);
+      }
+    }
+    ok('لا مرشِّح مُهمَل في أي نداء Api.from', bad.length === 0, bad.join(' · '));
+  }
   corrupt.forEach((f) => console.log('   ← ترميز تالف: ' + f));
 
   console.log('\n' + (fail.length ? `${fail.length} فشل` : 'كل الاختبارات نجحت'));
