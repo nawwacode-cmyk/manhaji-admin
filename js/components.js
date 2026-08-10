@@ -355,6 +355,154 @@ window.C = (function () {
     }
   }
 
+  /* ---------------------------------------------------------------------------
+     رفع شرح الدرس (PDF)
+
+     نفس مسار الفيديو حرفيًّا — توقيعٌ ثم رفعٌ مباشر إلى R2 ثم تسجيل — لأن
+     الشرح محتوًى **مدفوع** مثله: دلوٌ خاصّ ورابطٌ موقّع، لا ملفٌّ عام يُتداول
+     برابط واحد.
+
+     وعدد الصفحات يُقرأ من الملفّ لا يُطلب من المحرِّر: رقمٌ يُكتب يدويًا
+     يُنسى أو يُخطأ. القراءة تتمّ بترويسة PDF المصغَّرة بلا مكتبة — اللوحة
+     ليست بحاجة لتحميل ١٫٤ م.ب لأجل رقم.
+  --------------------------------------------------------------------------- */
+  function docUploader({ lessonId = null, lessonTitle = '', onDone } = {}) {
+    const mb = (b) => Math.round((b || 0) / 1048576 * 10) / 10;
+
+    const fTitle = input({ placeholder: lessonTitle || 'مثال: الوحدة ١ — التحيات' });
+    if (lessonTitle) fTitle.value = lessonTitle;
+
+    const info = h('div');
+    const progress = h('div');
+    const err = h('div.badge.badge--err', { style: 'display:none' });
+    const showErr = (m) => { err.textContent = m; err.style.display = ''; };
+    let file = null, pages = null, xhr = null;
+
+    /** عدد الصفحات من بنية الملفّ. يعود بـnull إن تعذّر — رقمٌ اختياري لا شرط. */
+    async function countPages(f) {
+      try {
+        const txt = new TextDecoder('latin1').decode(await f.arrayBuffer());
+        // `/Type /Page` (لا `/Pages`) يظهر مرّة لكل صفحة في الملفّات غير المضغوطة
+        const direct = (txt.match(/\/Type\s*\/Page[^s]/g) || []).length;
+        if (direct > 0) return direct;
+        // ملفّ مضغوط البنية: `/Count N` في شجرة الصفحات
+        const counts = [...txt.matchAll(/\/Count\s+(\d+)/g)].map((m) => Number(m[1]));
+        return counts.length ? Math.max(...counts) : null;
+      } catch { return null; }
+    }
+
+    const drop = h('div.drop',
+      h('div', { style: 'font-weight:700;margin-bottom:6px' }, 'اسحب ملفّ الشرح هنا'),
+      h('div.small', 'أو اضغط للاختيار — PDF فقط'));
+    const picker = h('input', { type: 'file', accept: 'application/pdf,.pdf', style: 'display:none' });
+
+    drop.addEventListener('click', () => picker.click());
+    ['dragover', 'dragenter'].forEach((e) => drop.addEventListener(e, (ev) => {
+      ev.preventDefault(); drop.classList.add('is-over');
+    }));
+    ['dragleave', 'drop'].forEach((e) =>
+      drop.addEventListener(e, () => drop.classList.remove('is-over')));
+    drop.addEventListener('drop', (ev) => { ev.preventDefault(); take(ev.dataTransfer.files[0]); });
+    picker.addEventListener('change', () => take(picker.files[0]));
+
+    async function take(f) {
+      if (!f) return;
+      if (f.type !== 'application/pdf' && !/\.pdf$/i.test(f.name)) {
+        return showErr('الملفّ ليس PDF.');
+      }
+      err.style.display = 'none';
+      file = f;
+      if (!fTitle.value) fTitle.value = f.name.replace(/\.[^.]+$/, '');
+      pages = null;
+      showInfo();
+      pages = await countPages(f);
+      showInfo();
+    }
+
+    function showInfo() {
+      const size = mb(file.size);
+      /* الترشيح ضروري: `replaceChildren` الأصلية تحوّل `false` إلى عقدة نصّية
+         فتظهر الكلمة في الواجهة — بخلاف `UI.h` التي تُسقط الزائف. */
+      info.replaceChildren(...[
+        h('div.row.mt', { style: 'gap:8px;flex-wrap:wrap' },
+          h('span.badge.badge--acc', `${ar(size)} م.ب`),
+          pages ? h('span.badge.badge--mute', `${ar(pages)} صفحة`)
+                : h('span.badge.badge--mute', 'جارٍ قراءة الصفحات…')),
+        /* كل ميغابايت يتحمّله كل طالب في كل فتحة، وعلى بيانات الهاتف. شرحٌ
+           مصمَّم يقع عادةً تحت ٨ م.ب؛ ما تجاوزها غالبًا صورٌ لم تُضغط. */
+        size > 8 && h('div.help', { style: 'margin-top:8px' },
+          'أثقل من المتوقّع لشرحٍ مصمَّم. صغِّر الصور داخل الملفّ قبل التصدير — '
+          + 'كل ميغابايت يتحمّله كل طالب في كل مرّة يفتح الدرس.'),
+      ].filter(Boolean));
+    }
+
+    const close = modal({
+      title: lessonTitle ? `رفع شرح لـ«${lessonTitle}»` : 'رفع شرح PDF',
+      wide: true,
+      body: h('div', drop, picker, info,
+        h('div.mt', field('العنوان', fTitle, 'يظهر في المكتبة — لا يراه الطالب.')),
+        progress, err),
+      actions: [
+        { label: 'إلغاء', onClick: (c) => { if (xhr) xhr.abort(); c(); } },
+        { label: 'رفع', kind: 'primary', onClick: () => start() },
+      ],
+    });
+
+    async function start() {
+      if (!file) return showErr('اختر ملفًا أوّلًا.');
+      if (!fTitle.value.trim()) return showErr('العنوان مطلوب.');
+      err.style.display = 'none';
+
+      const bar = h('div.bar', h('i', { style: 'width:0%' }));
+      const label = h('div.small.mb', 'جارٍ التوقيع…');
+      progress.replaceChildren(h('div.mt', label, bar));
+
+      try {
+        const sign = await Api.invoke('admin-doc', {
+          action: 'sign', filename: file.name,
+          content_type: 'application/pdf', size_bytes: file.size,
+        });
+
+        label.textContent = 'جارٍ الرفع…';
+        await new Promise((resolve, reject) => {
+          xhr = new XMLHttpRequest();
+          xhr.open('PUT', sign.upload_url, true);
+          xhr.setRequestHeader('Content-Type', 'application/pdf');
+          xhr.upload.onprogress = (e) => {
+            if (!e.lengthComputable) return;
+            const pct = Math.round(e.loaded / e.total * 100);
+            bar.firstChild.style.width = pct + '%';
+            label.textContent = `جارٍ الرفع… ${ar(pct)}٪`;
+          };
+          xhr.onload = () => (xhr.status >= 200 && xhr.status < 300)
+            ? resolve() : reject(new Error(`فشل الرفع إلى التخزين (${xhr.status}).`));
+          xhr.onerror = () => reject(new Error('انقطع الاتصال أثناء الرفع.'));
+          xhr.onabort = () => reject(new Error('أُلغي الرفع.'));
+          xhr.send(file);
+        });
+
+        // التسجيل بعد نجاح الرفع لا قبله — وإلّا بقي في المكتبة ملفٌّ لا وجود
+        // له في R2، يُربط بدرس فيرى الطالب عارضًا فارغًا.
+        label.textContent = 'جارٍ التسجيل…';
+        const res = await Api.invoke('admin-doc', {
+          action: 'commit', r2_key: sign.r2_key,
+          title: fTitle.value.trim(), pages, size_bytes: file.size,
+        });
+
+        if (lessonId) await Api.update('lessons', lessonId, { doc_id: res.doc.id });
+
+        toast('رُفع الشرح');
+        close();
+        onDone?.(res.doc);
+      } catch (e) {
+        xhr = null;
+        progress.replaceChildren();
+        showErr(e.message || 'تعذّر الرفع.');
+      }
+    }
+  }
+
   return { pageHead, card, kpi, table, td, actions, field, input, textarea, select,
-           checkbox, modal, confirmDialog, toast, pubBadge, download, videoUploader };
+           checkbox, modal, confirmDialog, toast, pubBadge, download, videoUploader,
+           docUploader };
 })();

@@ -207,6 +207,60 @@ window.Pages = window.Pages || {};
         return box;
       }
 
+      /* شرح الدرس: PDF مصمَّم بدل نصّ HTML.
+         الدرس بلا شرحٍ مرفوع يعرض `body_html` القديم — فالشارة هنا «نصّ» لا
+         «ناقص»: الدرس يعمل، والانتقال يجري درسًا درسًا. */
+      function docRow() {
+        const box = h('div');
+        const refresh = async () => {
+          let doc = null;
+          try {
+            const [row] = await Api.from('lessons', { select: 'doc_id', id: `eq.${l.id}` });
+            if (row?.doc_id) {
+              const [d] = await Api.from('lesson_docs',
+                { select: 'id,title,pages,size_bytes', id: `eq.${row.doc_id}` });
+              doc = d || null;
+            }
+          } catch { /* العرض أدناه يتصرّف كأنه بلا شرح */ }
+          render(doc);
+        };
+
+        const render = (d) => box.replaceChildren(
+          d
+            ? h('div.row', { style: 'gap:10px;flex-wrap:wrap;align-items:center' },
+                h('span.badge.badge--ok', 'شرح PDF'),
+                h('div.grow', h('div.small', { style: 'font-weight:600' }, d.title),
+                  h('div.faint.small',
+                    `${d.pages ? ar(d.pages) + ' صفحة · ' : ''}`
+                    + `${ar(Math.round((d.size_bytes || 0) / 1048576 * 10) / 10)} م.ب`)),
+                h('button.btn.btn--ghost.btn--sm', {
+                  onclick: () => C.confirmDialog('فكّ الشرح',
+                    'يُفصل الشرح عن هذا الدرس ويعود الطالب لرؤية النصّ القديم. '
+                    + 'الملفّ يبقى في المكتبة.',
+                    async () => {
+                      try {
+                        await Api.update('lessons', l.id, { doc_id: null });
+                        C.toast('فُكّ الشرح'); refresh();
+                      } catch (e) { C.toast(e.message || 'تعذّر الفكّ', 'err'); }
+                    }, 'فكّ'),
+                }, 'فكّ'),
+                h('button.btn.btn--sec.btn--sm', {
+                  onclick: () => C.docUploader({
+                    lessonId: l.id, lessonTitle: l.title, onDone: refresh }),
+                }, 'استبدال'))
+            : h('div.row', { style: 'gap:10px;align-items:center' },
+                h('span.badge.badge--mute', 'الشرح نصّ'),
+                h('button.btn.btn--sec.btn--sm', {
+                  onclick: () => C.docUploader({
+                    lessonId: l.id, lessonTitle: l.title, onDone: refresh }),
+                }, '⬆ رفع شرح PDF')),
+        );
+
+        render(null);
+        refresh();
+        return box;
+      }
+
       const qBox = h('div');
       drawAttached();
 
@@ -337,6 +391,10 @@ window.Pages = window.Pages || {};
                تُنسى — والنتيجة درسٌ منشور بلا فيديو لا ينتبه له أحد. */
             C.field('فيديو الدرس', videoRow(),
               'يُرفع مباشرةً إلى التخزين ويُربط بهذا الدرس تلقائيًّا.'),
+
+            C.field('شرح الدرس (PDF)', docRow(),
+              'يُرفع كالفيديو ويظهر للطالب في عارضٍ داخل التطبيق تحت الفيديو. '
+              + 'برفعه يحلّ محلّ نصّ الشرح أدناه — والنصّ يبقى محفوظًا ويعود إن فُكّ الشرح.'),
 
             C.field('أسئلة هذا الدرس', h('div',
               qBox,
