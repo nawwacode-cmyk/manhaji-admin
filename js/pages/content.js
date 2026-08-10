@@ -212,10 +212,13 @@ window.Pages = window.Pages || {};
          «ناقص»: الدرس يعمل، والانتقال يجري درسًا درسًا. */
       function docRow() {
         const box = h('div');
+        let mode = 'text';
+
         const refresh = async () => {
           let doc = null;
           try {
-            const [row] = await Api.from('lessons', { select: 'doc_id', id: `eq.${l.id}` });
+            const [row] = await Api.from('lessons', { select: 'doc_id,body_mode', id: `eq.${l.id}` });
+            mode = row?.body_mode === 'pdf' ? 'pdf' : 'text';
             if (row?.doc_id) {
               const [d] = await Api.from('lesson_docs',
                 { select: 'id,title,pages,size_bytes', id: `eq.${row.doc_id}` });
@@ -225,21 +228,49 @@ window.Pages = window.Pages || {};
           render(doc);
         };
 
+        /* المفتاح: أيّهما يراه الطالب. الاثنان يبقيان محفوظين — الرفع لا يمحو
+           النصّ، والعودة إلى النصّ لا تفكّ الملفّ. فيستطيع المحرِّر تجهيز
+           شرحٍ ومراجعته قبل أن يقرّر عرضه. */
+        const setMode = async (next, d) => {
+          if (next === mode) return;
+          if (next === 'pdf' && !d) return C.toast('ارفع ملفّ الشرح أوّلًا', 'err');
+          try {
+            await Api.update('lessons', l.id, { body_mode: next });
+            mode = next;
+            C.toast(next === 'pdf' ? 'الطالب يرى شرح الـPDF' : 'الطالب يرى نصّ الدرس');
+            render(d);
+          } catch (e) { C.toast(e.message || 'تعذّر التبديل', 'err'); }
+        };
+
+        const switcher = (d) => h('div.row', { style: 'gap:6px;margin-bottom:10px' },
+          ...[['text', 'نص الدرس'], ['pdf', 'شرح PDF']].map(([key, label]) =>
+            h('button.btn.btn--sm' + (mode === key ? '.btn--primary' : '.btn--sec'), {
+              onclick: () => setMode(key, d),
+              // وضعُ PDF بلا ملفّ يعني شاشةً فارغة للطالب — نمنعه لا نصلحه بعده
+              disabled: key === 'pdf' && !d,
+            }, label)),
+          h('span.faint.small', { style: 'align-self:center' },
+            mode === 'pdf' ? 'الطالب يرى الملفّ' : 'الطالب يرى النصّ المكتوب'));
+
         const render = (d) => box.replaceChildren(
+          switcher(d),
           d
             ? h('div.row', { style: 'gap:10px;flex-wrap:wrap;align-items:center' },
-                h('span.badge.badge--ok', 'شرح PDF'),
+                h('span.badge.badge--ok', 'مرفوع'),
                 h('div.grow', h('div.small', { style: 'font-weight:600' }, d.title),
                   h('div.faint.small',
                     `${d.pages ? ar(d.pages) + ' صفحة · ' : ''}`
                     + `${ar(Math.round((d.size_bytes || 0) / 1048576 * 10) / 10)} م.ب`)),
                 h('button.btn.btn--ghost.btn--sm', {
                   onclick: () => C.confirmDialog('فكّ الشرح',
-                    'يُفصل الشرح عن هذا الدرس ويعود الطالب لرؤية النصّ القديم. '
-                    + 'الملفّ يبقى في المكتبة.',
+                    'يُفصل الملفّ عن هذا الدرس ويعود الطالب لرؤية النصّ المكتوب. '
+                    + 'الملفّ يبقى في المكتبة ويمكن ربطه بدرس آخر.',
                     async () => {
                       try {
-                        await Api.update('lessons', l.id, { doc_id: null });
+                        /* الوضع يعود مع الفكّ: تركُه `pdf` بلا ملفٍّ يترك الدرس
+                           في حالةٍ لا معنى لها — يُصلحها التطبيق بعرض النصّ،
+                           لكن اللوحة تظلّ تدّعي أن الطالب يرى ملفًّا لا وجود له. */
+                        await Api.update('lessons', l.id, { doc_id: null, body_mode: 'text' });
                         C.toast('فُكّ الشرح'); refresh();
                       } catch (e) { C.toast(e.message || 'تعذّر الفكّ', 'err'); }
                     }, 'فكّ'),
@@ -249,7 +280,7 @@ window.Pages = window.Pages || {};
                     lessonId: l.id, lessonTitle: l.title, onDone: refresh }),
                 }, 'استبدال'))
             : h('div.row', { style: 'gap:10px;align-items:center' },
-                h('span.badge.badge--mute', 'الشرح نصّ'),
+                h('span.badge.badge--mute', 'لا ملفّ مرفوع'),
                 h('button.btn.btn--sec.btn--sm', {
                   onclick: () => C.docUploader({
                     lessonId: l.id, lessonTitle: l.title, onDone: refresh }),
@@ -393,8 +424,8 @@ window.Pages = window.Pages || {};
               'يُرفع مباشرةً إلى التخزين ويُربط بهذا الدرس تلقائيًّا.'),
 
             C.field('شرح الدرس (PDF)', docRow(),
-              'يُرفع كالفيديو ويظهر للطالب في عارضٍ داخل التطبيق تحت الفيديو. '
-              + 'برفعه يحلّ محلّ «نص الدرس» أعلاه — والنصّ يبقى محفوظًا ويعود إن فُكّ الشرح.'),
+              'اختر ما يراه الطالب: «نص الدرس» المكتوب أعلاه، أو ملفّ PDF في عارضٍ '
+              + 'داخل التطبيق تحت الفيديو. الاثنان يبقيان محفوظين والتبديل بينهما لا يمحو شيئًا.'),
 
             C.field('أسئلة هذا الدرس', h('div',
               qBox,

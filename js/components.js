@@ -489,7 +489,10 @@ window.C = (function () {
           title: fTitle.value.trim(), pages, size_bytes: file.size,
         });
 
-        if (lessonId) await Api.update('lessons', lessonId, { doc_id: res.doc.id });
+        /* الرفع يبدّل العرض إلى الملفّ: من يرفع شرحًا يريد عرضه في الغالب،
+           وتركُه غير معروض يجعل المحرِّر يظنّ الرفع فاشلًا. والمفتاح في
+           محرّر الدرس يعيده إلى النصّ بضغطة إن أراد التأجيل. */
+        if (lessonId) await Api.update('lessons', lessonId, { doc_id: res.doc.id, body_mode: 'pdf' });
 
         toast('رُفع الشرح');
         close();
