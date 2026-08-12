@@ -24,11 +24,15 @@ window.Pages = window.Pages || {};
 
       wrap.replaceChildren(
         C.card('المواد',
-          C.table(['الكود', 'الاسم', 'بلغتها', 'اللون', 'الترتيب', 'المحتوى', ''],
+          C.table(['', 'الكود', 'الاسم', 'بلغتها', 'اللون', 'الترتيب', 'المحتوى', ''],
             s.subjects, (sub) => {
               const count = s.contentCounts[sub.id] || 0;
               const active = sub.id === s.subjectId;
               return [
+                sub.icon
+                  ? h('img', { src: Api.publicUrl(sub.icon), alt: '',
+                      style: 'width:32px;height:32px;border-radius:8px;object-fit:contain;background:var(--acc-soft)' })
+                  : h('span.faint', '—'),
                 h('span.mono.small', sub.code),
                 h('div', { style: 'font-weight:600' }, sub.name,
                   active && h('span.badge.badge--ok', { style: 'margin-inline-start:8px' }, 'الفعّالة')),
@@ -84,12 +88,46 @@ window.Pages = window.Pages || {};
       const sync = () => { dot.setAttribute('style', swatchStyle(colorInput.value.trim())); };
       colorInput.addEventListener('input', sync);
 
+      // --- صورة المادة --- (نفس نمط صورة الأستاذ بـ teachers.js حرفيًا:
+      // رفع مؤجَّل لوقت الحفظ، حذف القديمة بعد نجاح الجديدة لا قبله)
+      let iconPath = sub?.icon || null;
+      let pickedFile = null;
+      const preview = h('div', { style: 'width:64px;height:64px;border-radius:14px;overflow:hidden;'
+        + 'background:var(--acc-soft);display:grid;place-items:center;flex:none;border:1px solid var(--brd)' });
+      const drawPreview = (src) => preview.replaceChildren(src
+        ? h('img', { src, alt: '', style: 'width:100%;height:100%;object-fit:contain' })
+        : h('span', { style: 'color:var(--acc-tx);font-weight:700;font-size:20px' },
+            (name.value || '؟')[0]));
+      drawPreview(Api.publicUrl(iconPath));
+
+      const iconFile = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/avif',
+                                    style: 'display:none' });
+      iconFile.addEventListener('change', () => {
+        const f = iconFile.files[0];
+        if (!f) return;
+        pickedFile = f;
+        drawPreview(URL.createObjectURL(f));   // معاينة فورية قبل الرفع
+      });
+
       const err = h('div');
 
       C.modal({
         title: isNew ? 'مادة جديدة' : 'تعديل المادة',
         body: h('div',
           err,
+          h('div.row', { style: 'gap:16px;align-items:flex-start;margin-bottom:16px' },
+            preview,
+            h('div',
+              h('button.btn.btn--sec.btn--sm', { onclick: () => iconFile.click() },
+                iconPath || pickedFile ? 'تبديل الصورة' : 'اختر صورة'),
+              iconPath && h('button.btn.btn--ghost.btn--sm', {
+                style: 'margin-inline-start:6px;color:var(--err)',
+                onclick: () => { iconPath = null; pickedFile = null; drawPreview(null); },
+              }, 'إزالة'),
+              h('div.help', { style: 'margin-top:6px' },
+                'أيقونة مربّعة، بلا خلفية يُفضَّل (PNG شفّاف) · PNG أو JPEG أو WebP · حتى ٥ م.ب. '
+                + 'بلا صورة، تظهر أيقونة عامة بدلها بالتطبيق.'),
+              iconFile)),
           C.field('الكود', code,
             'حروف لاتينية صغيرة بلا مسافات — يستعمله التطبيق وأدوات الاستيراد. '
             + 'تغييره بعد وجود محتوى يكسر الروابط، فاختره مرة واحدة.'),
@@ -122,12 +160,23 @@ window.Pages = window.Pages || {};
             if (clash) return fail(`الكود «${c}» مستعمل فعلًا في مادة «${clash.name}».`);
 
             try {
+              let path = iconPath;
+              if (pickedFile) {
+                path = await Api.uploadImage(pickedFile, 'subjects');
+                // الصورة القديمة تُحذف بعد نجاح الرفع لا قبله — لو فشل الرفع
+                // نكون قد أتلفنا الموجود بلا بديل.
+                if (sub?.icon && sub.icon !== path) await Api.deleteImage(sub.icon);
+              } else if (sub?.icon && !iconPath) {
+                await Api.deleteImage(sub.icon);
+              }
+
               await Store.upsert('subjects', {
                 id: sub?.id || Store.newId(),
                 code: c, name: n,
                 native: native.value.trim(),
                 color: colorInput.value.trim(),
                 order: Number(order.value) || 0,
+                icon: path,
               });
               close();
               C.toast(isNew ? 'أُضيفت المادة' : 'حُفظت التعديلات');
