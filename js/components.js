@@ -450,12 +450,23 @@ window.C = (function () {
      وعدد الصفحات يُقرأ من الملفّ لا يُطلب من المحرِّر: رقمٌ يُكتب يدويًا
      يُنسى أو يُخطأ. القراءة تتمّ بترويسة PDF المصغَّرة بلا مكتبة — اللوحة
      ليست بحاجة لتحميل ١٫٤ م.ب لأجل رقم.
+
+     والملفّ يتبع **درسًا أو مادة**: «نوطة العلوم» ليست ملفَّ درسٍ بعينه.
+     المالك يُرسل مع `commit` ويفرض السيرفر أن يكون واحدًا بالضبط
+     (`lesson_docs_one_owner`) — فملفٌّ بلا مالكٍ لا يمكن أن يولد يتيمًا.
   --------------------------------------------------------------------------- */
-  function docUploader({ lessonId = null, lessonTitle = '', bodyMode = 'text', hasText = false, onDone } = {}) {
+  function docUploader({ lessonId = null, subjectId = null, lessonTitle = '',
+                         bodyMode = 'text', hasText = false, onDone } = {}) {
     const mb = (b) => Math.round((b || 0) / 1048576 * 10) / 10;
 
-    const fTitle = input({ placeholder: lessonTitle || 'مثال: الوحدة ١ — التحيات' });
-    if (lessonTitle) fTitle.value = lessonTitle;
+    /* اسم الملفّ **يراه الطالب** في قائمة الملفّات، فلا يُملأ مسبقًا باسم
+       المادة: «العلوم» ليس اسمًا لملفٍّ داخل مادة العلوم. اسم الدرس يُملأ لأنه
+       الاسم الصحيح غالبًا لشرحه الوحيد. */
+    const fTitle = input({
+      placeholder: subjectId ? 'مثال: نوطة المادة كاملة'
+        : (lessonTitle || 'مثال: الوحدة ١ — التحيات'),
+    });
+    if (lessonTitle && !subjectId) fTitle.value = lessonTitle;
 
     const info = h('div');
     const progress = h('div');
@@ -522,10 +533,13 @@ window.C = (function () {
     }
 
     const close = modal({
-      title: lessonTitle ? `رفع شرح لـ«${lessonTitle}»` : 'رفع شرح PDF',
+      title: !lessonTitle ? 'رفع ملفّ PDF'
+        : subjectId ? `رفع ملفّ لمادة «${lessonTitle}»`
+        : `رفع شرح لـ«${lessonTitle}»`,
       wide: true,
       body: h('div', drop, picker, info,
-        h('div.mt', field('العنوان', fTitle, 'يظهر في المكتبة — لا يراه الطالب.')),
+        h('div.mt', field('العنوان', fTitle,
+          'يراه الطالب فوق الملفّ في قائمة الملفّات — اكتبه كما تريده أن يقرأه.')),
         progress, err),
       actions: [
         { label: 'إلغاء', onClick: (c) => { if (xhr) xhr.abort(); c(); } },
@@ -575,7 +589,8 @@ window.C = (function () {
            فكل ملفٍّ جديد يولد يتيمًا: يظهر في سجلّ النشاط مرفوعًا ولا تراه
            قائمة الدرس أبدًا — وهو بعينه «لا أستطيع رفع أكثر من ملفّ». */
         const res = await Api.invoke('admin-doc', {
-          action: 'commit', r2_key: sign.r2_key, lesson_id: lessonId || null,
+          action: 'commit', r2_key: sign.r2_key,
+          lesson_id: lessonId || null, subject_id: lessonId ? null : (subjectId || null),
           title: fTitle.value.trim(), pages, size_bytes: file.size,
         });
 

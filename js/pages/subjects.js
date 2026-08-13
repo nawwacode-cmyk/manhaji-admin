@@ -54,6 +54,7 @@ window.Pages = window.Pages || {};
                       App.render();
                     },
                   }, 'اجعلها الفعّالة'),
+                  h('button.btn.btn--sec.btn--sm', { onclick: () => files(sub) }, 'الملفّات'),
                   h('button.btn.btn--sec.btn--sm', { onclick: () => edit(sub) }, 'تعديل'),
                   h('button.btn.btn--danger.btn--sm', {
                     disabled: count > 0,
@@ -75,11 +76,85 @@ window.Pages = window.Pages || {};
       );
     }
 
+    /* -------------------------------------------------------------------------
+       ملفّات المادة — النوطة والملحق والملخّص
+
+       ليست ملفَّ درسٍ بعينه، فلا مكان لها في محرّر الدرس. يراها الطالب في
+       تبويب «ملفّات» بشاشة المادة، ولا يراها إلّا مشترِكٌ لديه وصولٌ إلى
+       كورسٍ منشورٍ منها — نفس بوّابة الوحدات والدروس (سياسة `read_lesson_docs`).
+    ------------------------------------------------------------------------- */
+    function files(sub) {
+      const box = h('div');
+      let docs = [];
+      let loading = true;
+
+      const refresh = async () => {
+        try {
+          const res = await Api.invoke('admin-doc', { action: 'list', subject_id: sub.id });
+          docs = res.docs || [];
+        } catch { docs = []; }
+        loading = false;
+        render();
+      };
+
+      // حذفٌ حقيقي: الصفّ والكائن في التخزين معًا. الرسالة تقولها صراحةً —
+      // إخفاء أثر الحذف هو ما يجعل المحرِّر يضغط بلا تفكير.
+      const removeDoc = (d) => C.confirmDialog('حذف الملفّ نهائيًّا',
+        `سيُحذف «${d.title}» من القاعدة ومن التخزين معًا. لا يمكن التراجع، `
+        + 'وسيلزم رفعه من جديد.',
+        async () => {
+          try {
+            await Api.invoke('admin-doc', { action: 'remove', id: d.id });
+            C.toast('حُذف الملفّ'); refresh();
+          } catch (e) { C.toast(e.message || 'تعذّر الحذف', 'err'); }
+        }, 'حذف نهائي');
+
+      const row = (d) => h('div.row', {
+        style: 'gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--brd)',
+      },
+        h('span.badge.badge--mute', ar(d.sort_order || 1)),
+        h('div.grow',
+          h('div.small', { style: 'font-weight:600' }, d.title),
+          h('div.faint.small',
+            (d.pages ? ar(d.pages) + ' صفحة · ' : '')
+            + ar(Math.round((d.size_bytes || 0) / 1048576 * 10) / 10) + ' م.ب')),
+        h('button.btn.btn--ghost.btn--sm', {
+          style: 'color:var(--err)', onclick: () => removeDoc(d),
+        }, 'حذف'));
+
+      /* الترشيح ضروري: `replaceChildren` الأصلية تحوّل `null` إلى عقدة نصّية
+         فتظهر الكلمة حرفيًّا في الواجهة — بخلاف `UI.h`. */
+      const render = () => box.replaceChildren(...[
+        h('div.help', { style: 'margin-bottom:10px' },
+          'ملفّاتٌ تخصّ المادة كلّها — نوطة أو ملحق أو ملخّص. تظهر للطالب في '
+          + 'تبويب «ملفّات» بشاشة المادة، ولا يراها إلّا المشترِك.'),
+        loading ? h('div.faint.small', 'جارٍ التحميل…') : null,
+        ...docs.map(row),
+        h('div.row', { style: 'gap:10px;align-items:center;margin-top:10px' },
+          (loading || docs.length) ? h('span') : h('span.badge.badge--mute', 'لا ملفّات بعد'),
+          h('button.btn.btn--sec.btn--sm', {
+            onclick: () => C.docUploader({
+              subjectId: sub.id, lessonTitle: sub.name, onDone: refresh }),
+          }, docs.length ? '+ أضف ملفًّا آخر' : '⬆ رفع ملفّ')),
+      ].filter(Boolean));
+
+      render();
+      refresh();
+
+      C.modal({
+        title: `ملفّات «${sub.name}»`,
+        body: box,
+        actions: [{ label: 'إغلاق', kind: 'primary', onClick: (c) => c() }],
+      });
+    }
+
     function edit(sub) {
       const isNew = !sub;
       const code   = C.input({ value: sub?.code || '', placeholder: 'fr', dir: 'ltr' });
       const name   = C.input({ value: sub?.name || '', placeholder: 'اللغة الفرنسية' });
       const native = C.input({ value: sub?.native || '', placeholder: 'Français', dir: 'ltr' });
+      const desc   = C.textarea({ rows: 2, value: sub?.description || '',
+        placeholder: 'مادة العلوم للبكالوريا العلمي مع الأستاذ خالد ميداني.' });
       const order  = C.input({ type: 'number', value: sub?.order ?? Store.get().subjects.length + 1 });
 
       let color = sub?.color || SWATCHES[0];
@@ -156,6 +231,9 @@ window.Pages = window.Pages || {};
             'حروف لاتينية صغيرة بلا مسافات — يستعمله التطبيق وأدوات الاستيراد. '
             + 'تغييره بعد وجود محتوى يكسر الروابط، فاختره مرة واحدة.'),
           C.field('الاسم بالعربية', name),
+          C.field('الوصف', desc,
+            'سطر أو سطران يظهران تحت اسم المادة في شاشتها عند الطالب. '
+            + 'اتركه فارغًا فيُخفى القسم كليًّا بدل عرض فراغ.'),
           C.field('الاسم بلغتها', native, 'يظهر تحت الاسم العربي في التطبيق. اتركه فارغًا للمواد العربية.'),
           C.field('اللون', h('div',
             h('div.row', { style: 'gap:8px' }, dot, colorInput),
@@ -198,6 +276,7 @@ window.Pages = window.Pages || {};
                 id: sub?.id || Store.newId(),
                 code: c, name: n,
                 native: native.value.trim(),
+                description: desc.value.trim() || null,
                 color: colorInput.value.trim(),
                 order: Number(order.value) || 0,
                 icon: path,
