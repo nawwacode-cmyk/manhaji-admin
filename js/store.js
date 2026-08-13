@@ -115,7 +115,8 @@ window.Store = (function () {
   // ---------------------------------------------------------------------------
   function fromDbSubject(s) {
     return { id: s.id, code: s.code, name: s.name_ar, native: s.name_native || '',
-             color: s.color_hex || '', order: s.sort_order, icon: s.icon || null };
+             color: s.color_hex || '', order: s.sort_order, icon: s.icon || null,
+             icon_pos: s.icon_pos || null };
   }
   function fromDbCourse(c) {
     return { id: c.id, subject: c.subject_id, grade: c.grade_id, code: c.code,
@@ -395,6 +396,7 @@ window.Store = (function () {
       color_hex: row.color || null,
       sort_order: Number(row.order) || 0,
       icon: row.icon || null,
+      icon_pos: row.iconPos || null,
     };
     await Api.upsert('subjects', dbRow);
     await loadAll();     // المادة قد تكون الأولى فتصير الفعّالة تلقائيًا

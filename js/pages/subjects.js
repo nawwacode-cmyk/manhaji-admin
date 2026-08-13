@@ -100,13 +100,36 @@ window.Pages = window.Pages || {};
             (name.value || '؟')[0]));
       drawPreview(Api.publicUrl(iconPath));
 
+      /* --- ضبط موضع الصورة ---------------------------------------------------
+         التطبيق يعرض هذه الصورة في بلاطة **مربّعة** بـ`cover`، فتُقصّ من
+         الوسط دائمًا. الأداة تُظهر ما سيُقصّ فعلًا وتسمح بتحريكه. */
+      let iconPos = sub?.icon_pos || '50% 50%';
+      const focusBox = h('div', { style: 'margin-top:12px' });
+      let focusTool = null;
+
+      const drawFocus = (src) => {
+        try { focusTool?._dispose?.(); } catch { /* لا شيء */ }
+        focusTool = null;
+        if (!src) { focusBox.replaceChildren(); return; }
+        focusTool = C.imageFocus({
+          src, ratio: '1 / 1', value: iconPos,
+          onChange: (v) => { iconPos = v; },
+        });
+        focusBox.replaceChildren(focusTool);
+      };
+      drawFocus(Api.publicUrl(iconPath));
+
       const iconFile = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/avif',
                                     style: 'display:none' });
       iconFile.addEventListener('change', () => {
         const f = iconFile.files[0];
         if (!f) return;
         pickedFile = f;
-        drawPreview(URL.createObjectURL(f));   // معاينة فورية قبل الرفع
+        const url = URL.createObjectURL(f);
+        drawPreview(url);   // معاينة فورية قبل الرفع
+        // صورةٌ جديدة تبدأ من الوسط: موضعٌ ضُبط لصورةٍ أخرى لا معنى له عليها
+        iconPos = '50% 50%';
+        drawFocus(url);
       });
 
       const err = h('div');
@@ -122,12 +145,13 @@ window.Pages = window.Pages || {};
                 iconPath || pickedFile ? 'تبديل الصورة' : 'اختر صورة'),
               iconPath && h('button.btn.btn--ghost.btn--sm', {
                 style: 'margin-inline-start:6px;color:var(--err)',
-                onclick: () => { iconPath = null; pickedFile = null; drawPreview(null); },
+                onclick: () => { iconPath = null; pickedFile = null; drawPreview(null); drawFocus(null); },
               }, 'إزالة'),
               h('div.help', { style: 'margin-top:6px' },
                 'أيقونة مربّعة، بلا خلفية يُفضَّل (PNG شفّاف) · PNG أو JPEG أو WebP · حتى ٥ م.ب. '
                 + 'بلا صورة، تظهر أيقونة عامة بدلها بالتطبيق.'),
               iconFile)),
+          focusBox,
           C.field('الكود', code,
             'حروف لاتينية صغيرة بلا مسافات — يستعمله التطبيق وأدوات الاستيراد. '
             + 'تغييره بعد وجود محتوى يكسر الروابط، فاختره مرة واحدة.'),
@@ -177,6 +201,8 @@ window.Pages = window.Pages || {};
                 color: colorInput.value.trim(),
                 order: Number(order.value) || 0,
                 icon: path,
+                // بلا صورة لا معنى لموضعٍ محفوظ — يُصفَّر كي لا يُطبَّق على التالية
+                iconPos: path ? iconPos : null,
               });
               close();
               C.toast(isNew ? 'أُضيفت المادة' : 'حُفظت التعديلات');

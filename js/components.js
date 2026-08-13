@@ -127,6 +127,91 @@ window.C = (function () {
   }
 
   /* ---------------------------------------------------------------------------
+     ضبط موضع الصورة — كضبط صورة الملف الشخصي في فيسبوك
+
+     لا نقصّ الصورة ولا نعيد ترميزها: نحفظ **نقطة تركيز** تُطبَّق كـ
+     `object-position` أينما عُرضت. الفرق عمليّ لا نظري — الصورة نفسها تظهر
+     بنسبٍ مختلفة (بلاطة مربّعة ٤٢px وغلاف عريض ٢٤٠px)، والقصّ يبقيها صالحة
+     لواحدة ويُتلف الأصل، والنقطة تصلح لهما معًا وتبقى قابلة للتعديل لاحقًا.
+
+     والسحب **معكوس الاتجاه** عمدًا: يجرّ المستخدم الصورة نفسها لا الإطار،
+     فسحبُها لأعلى يُظهر أسفلها. هذا ما تفعله كل أداة يعرفها، وعكسُه يُشعره
+     أن الأداة تقاومه.
+  --------------------------------------------------------------------------- */
+  function imageFocus({ src, ratio = '1 / 1', value = '50% 50%', onChange } = {}) {
+    const parse = (v) => {
+      const m = String(v || '').match(/^(\d{1,3})% (\d{1,3})%$/);
+      return m ? { x: +m[1], y: +m[2] } : { x: 50, y: 50 };
+    };
+    let { x, y } = parse(value);
+
+    const img = h('img', { src, alt: '', draggable: 'false' });
+    const frame = h('div.focus', { style: `aspect-ratio:${ratio}` }, img,
+      h('div.focus__grid', { 'aria-hidden': 'true' }));
+    const label = h('span.faint.small');
+
+    const apply = () => {
+      const v = `${Math.round(x)}% ${Math.round(y)}%`;
+      img.style.objectPosition = v;
+      label.textContent = v === '50% 50%' ? 'الوسط' : v;
+      onChange?.(v);
+    };
+
+    /* التحويل من بكسلات السحب إلى نسبة مئوية يقسم على مقاس الإطار لا على
+       مقاس الصورة: الأخير غير معروف قبل التحميل، وقسمةٌ على صفرٍ تُنتج NaN
+       فتُبطل الخاصّية كلّها ويقفز التأطير إلى الوسط فجأةً تحت الإصبع. */
+    let drag = null;
+    const start = (e) => {
+      const p = e.touches ? e.touches[0] : e;
+      drag = { px: p.clientX, py: p.clientY, x, y };
+      frame.classList.add('is-drag');
+    };
+    const move = (e) => {
+      if (!drag) return;
+      const p = e.touches ? e.touches[0] : e;
+      const w = frame.clientWidth || 1;
+      const hgt = frame.clientHeight || 1;
+      // السالب يجعل السحب يحرّك الصورة لا نافذتها
+      x = Math.min(100, Math.max(0, drag.x - ((p.clientX - drag.px) / w) * 100));
+      y = Math.min(100, Math.max(0, drag.y - ((p.clientY - drag.py) / hgt) * 100));
+      apply();
+      e.preventDefault();          // لا تمرير للصفحة تحت الإصبع أثناء السحب
+    };
+    const end = () => { drag = null; frame.classList.remove('is-drag'); };
+
+    frame.addEventListener('mousedown', start);
+    frame.addEventListener('touchstart', start, { passive: true });
+    // على المستند لا الإطار: الإصبع يخرج عن حدوده أثناء السحب فيتوقّف فجأةً
+    document.addEventListener('mousemove', move);
+    document.addEventListener('touchmove', move, { passive: false });
+    document.addEventListener('mouseup', end);
+    document.addEventListener('touchend', end);
+
+    apply();
+
+    const box = h('div',
+      frame,
+      h('div.row', { style: 'gap:10px;align-items:center;margin-top:8px' },
+        h('span.faint.small', 'اسحب الصورة لضبط ما يظهر'),
+        h('div.grow'),
+        label,
+        h('button.btn.btn--ghost.btn--sm', {
+          onclick: () => { x = 50; y = 50; apply(); },
+        }, 'توسيط')),
+    );
+
+    /* المستمعات على المستند تعيش بعد إغلاق النافذة المنبثقة. نافذةٌ تُفتح
+       وتُغلق عشر مرّات تترك عشرة مستمعات تحسب سحبًا لعناصر مُزالة. */
+    box._dispose = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('touchmove', move);
+      document.removeEventListener('mouseup', end);
+      document.removeEventListener('touchend', end);
+    };
+    return box;
+  }
+
+  /* ---------------------------------------------------------------------------
      رفع فيديو — مكوّن مشترك بين «الفيديوهات» و«تحرير الدرس»
 
      مشترك عمدًا لا مكرَّر: منطق الرفع دقيق (ترتيب التوقيع والرفع والتسجيل،
@@ -518,5 +603,5 @@ window.C = (function () {
 
   return { pageHead, card, kpi, table, td, actions, field, input, textarea, select,
            checkbox, modal, confirmDialog, toast, pubBadge, download, videoUploader,
-           docUploader };
+           docUploader, imageFocus };
 })();

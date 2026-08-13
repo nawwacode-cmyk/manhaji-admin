@@ -129,13 +129,37 @@ window.Pages = window.Pages || {};
             (name.value || '؟')[0]));
       drawPreview(Api.publicUrl(photoPath));
 
+      /* --- ضبط موضع الصورة ---------------------------------------------------
+         الإطار بنسبة ٣:٢ لأنها نسبة الغلاف في شاشة المادة — وهو أكثر موضعٍ
+         يُقصّ فيه: صورةٌ عمودية تفقد نصفها هناك. والبطاقة ٩٢px تستعمل الموضع
+         نفسه، فضبطٌ واحد يخدم الاثنين. */
+      let photoPos = t?.photo_pos || '50% 50%';
+      const focusBox = h('div', { style: 'margin-top:12px' });
+      let focusTool = null;
+
+      const drawFocus = (src) => {
+        try { focusTool?._dispose?.(); } catch { /* لا شيء */ }
+        focusTool = null;
+        if (!src) { focusBox.replaceChildren(); return; }
+        focusTool = C.imageFocus({
+          src, ratio: '3 / 2', value: photoPos,
+          onChange: (v) => { photoPos = v; },
+        });
+        focusBox.replaceChildren(focusTool);
+      };
+      drawFocus(Api.publicUrl(photoPath));
+
       const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/avif',
                                 style: 'display:none' });
       file.addEventListener('change', () => {
         const f = file.files[0];
         if (!f) return;
         pickedFile = f;
-        drawPreview(URL.createObjectURL(f));   // معاينة فورية قبل الرفع
+        const url = URL.createObjectURL(f);
+        drawPreview(url);   // معاينة فورية قبل الرفع
+        // صورةٌ جديدة تبدأ من الوسط: موضعٌ ضُبط لأخرى لا معنى له عليها
+        photoPos = '50% 50%';
+        drawFocus(url);
       });
 
       const err = h('div');
@@ -154,13 +178,14 @@ window.Pages = window.Pages || {};
                 photoPath || pickedFile ? 'تبديل الصورة' : 'اختر صورة'),
               photoPath && h('button.btn.btn--ghost.btn--sm', {
                 style: 'margin-inline-start:6px;color:var(--err)',
-                onclick: () => { photoPath = null; pickedFile = null; drawPreview(null); },
+                onclick: () => { photoPath = null; pickedFile = null; drawPreview(null); drawFocus(null); },
               }, 'إزالة'),
               h('div.help', { style: 'margin-top:6px' },
                 'بطاقة الأستاذ كاملة — الاسم والمادة والخبرة مرسومة داخل الصورة. '
                 + 'نسبة ٣:٢ عريضة (مثلًا ١٢٠٠×٨٠٠) · PNG أو JPEG أو WebP · حتى ٥ م.ب. '
                 + 'التطبيق يعرضها كما هي بلا قصّ ولا نصّ فوقها.'),
               file)),
+          focusBox,
 
           C.field('الاسم', name),
           C.field('الكود', code, 'حروف لاتينية صغيرة — معرّف ثابت لا يظهر للطالب.'),
@@ -205,6 +230,8 @@ window.Pages = window.Pages || {};
                 code: c, name: n,
                 bio: bio.value.trim() || null,
                 photo_path: path,
+                // بلا صورة لا معنى لموضع محفوظ
+                photo_pos: path ? photoPos : null,
                 profile_id: pid,
                 sort_order: Number(order.value) || 0,
                 is_active: active,
