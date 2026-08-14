@@ -119,9 +119,11 @@ window.Pages = window.Pages || {};
       // --- الصورة ---
       let photoPath = t?.photo_path || null;
       let pickedFile = null;
-      // المعاينة بنفس شكل العرض بالتطبيق: بطاقة عريضة ٣:٢ بلا قصّ. الدائرة
-      // السابقة كانت تُظهر الصورة مقصوصة فيوافق المدير على ما لن يراه الطالب.
-      const preview = h('div', { style: 'width:210px;aspect-ratio:3/2;border-radius:14px;overflow:hidden;'
+      // المعاينة بنفس شكل العرض بالتطبيق: غلاف شاشة المادة **مربّع** (بعرض
+      // الشاشة). الدائرة السابقة كانت تُظهر الصورة مقصوصة فيوافق المدير على
+      // ما لن يراه الطالب — ونسبة ٣:٢ بعدها صارت تكذب للسبب نفسه بعد أن كبر
+      // الغلاف وصار مربّعًا.
+      const preview = h('div', { style: 'width:190px;aspect-ratio:1/1;border-radius:14px;overflow:hidden;'
         + 'background:var(--acc-soft);display:grid;place-items:center;flex:none;border:1px solid var(--brd)' });
       const drawPreview = (src) => preview.replaceChildren(src
         ? h('img', { src, alt: '', style: 'width:100%;height:100%;object-fit:contain' })
@@ -130,9 +132,13 @@ window.Pages = window.Pages || {};
       drawPreview(Api.publicUrl(photoPath));
 
       /* --- ضبط موضع الصورة ---------------------------------------------------
-         الإطار بنسبة ٣:٢ لأنها نسبة الغلاف في شاشة المادة — وهو أكثر موضعٍ
-         يُقصّ فيه: صورةٌ عمودية تفقد نصفها هناك. والبطاقة ٩٢px تستعمل الموضع
-         نفسه، فضبطٌ واحد يخدم الاثنين. */
+         الإطار **مربّع** لأنها نسبة الغلاف في شاشة المادة — وهو أكثر موضعٍ
+         يُقصّ فيه. وبطاقات الأساتذة الدائرية تستعمل الموضع نفسه، والدائرة
+         مربّعةٌ أيضًا، فضبطٌ واحد يخدم الاثنين بلا تنازل.
+
+         ⚠️ مربوطٌ بـ`.chero__band` في تطبيق الطالب (`height: min(100vw, …)`).
+         تغييرُ أحدهما بلا الآخر يجعل المحرِّر يضبط الوجه على إطارٍ لا وجود
+         له — وحارسٌ في smoke يقرأ ملفّ التطبيق ويسقط إن انحرفا. */
       let photoPos = t?.photo_pos || '50% 50%';
       const focusBox = h('div', { style: 'margin-top:12px' });
       let focusTool = null;
@@ -142,7 +148,7 @@ window.Pages = window.Pages || {};
         focusTool = null;
         if (!src) { focusBox.replaceChildren(); return; }
         focusTool = C.imageFocus({
-          src, ratio: '3 / 2', value: photoPos,
+          src, ratio: '1 / 1', value: photoPos,
           onChange: (v) => { photoPos = v; },
         });
         focusBox.replaceChildren(focusTool);
@@ -182,8 +188,8 @@ window.Pages = window.Pages || {};
               }, 'إزالة'),
               h('div.help', { style: 'margin-top:6px' },
                 'بطاقة الأستاذ كاملة — الاسم والمادة والخبرة مرسومة داخل الصورة. '
-                + 'نسبة ٣:٢ عريضة (مثلًا ١٢٠٠×٨٠٠) · PNG أو JPEG أو WebP · حتى ٥ م.ب. '
-                + 'التطبيق يعرضها كما هي بلا قصّ ولا نصّ فوقها.'),
+                + 'صورة «مربّعة» (مثلًا ١٢٠٠×١٢٠٠) · PNG أو JPEG أو WebP · حتى ٥ م.ب. '
+                + 'غلاف شاشة المادة مربّع، وما خرج عن المربّع يُقصّ — اضبط موضعه بالأداة أدناه.'),
               file)),
           focusBox,
 
